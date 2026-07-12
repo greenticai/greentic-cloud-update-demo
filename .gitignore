@@ -1,0 +1,18 @@
+# demo-local state — never committed
+home/
+build/
+bin/
+release-cache/
+.*.log
+.session.json
+manifests/*.gen.json
+
+# cloudflare credentials
+server/.cloudflare.env
+server/.env
+server/.dev.vars
+server/node_modules/
+server/.wrangler/
+
+# compiled-component cache written by the runtime
+.greentic/

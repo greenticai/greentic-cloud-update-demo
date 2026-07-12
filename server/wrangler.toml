@@ -1,0 +1,26 @@
+name = "greentic-plan-server"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+[observability]
+enabled = true
+
+# One Durable Object per environment id. Serialized writes are what make the
+# monotonic-sequence guarantee real rather than best-effort — see env-store.ts.
+[[durable_objects.bindings]]
+name = "ENVS"
+class_name = "EnvPlanStore"
+
+[[durable_objects.bindings]]
+name = "LIMITER"
+class_name = "RateLimiter"
+
+# SQLite-backed classes: the storage backend available on the Workers free plan.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["EnvPlanStore", "RateLimiter"]
+
+# PLAN_UPLOAD_TOKEN is deliberately NOT set here. Uploads to the public instance
+# are authorised by the per-environment token minted by POST /v1/demo/session.
+# A self-hosted deployment can add a server-wide credential instead:
+#   npx wrangler secret put PLAN_UPLOAD_TOKEN

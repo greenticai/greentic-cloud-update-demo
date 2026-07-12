@@ -1,0 +1,20 @@
+{
+  "name": "greentic-plan-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The Greentic plan store as a Cloudflare Worker: stores DSSE-signed update plans, serves them anonymously, never holds a signing key.",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.18.4",
+    "@cloudflare/workers-types": "^5.20260712.1",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.0",
+    "wrangler": "^4.110.0"
+  }
+}
