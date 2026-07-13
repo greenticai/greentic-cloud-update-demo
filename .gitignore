@@ -5,7 +5,7 @@ bin/
 release-cache/
 .*.log
 .session.json
-manifests/*.gen.json
+manifests/
 
 # cloudflare credentials
 server/.cloudflare.env
