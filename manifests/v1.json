@@ -1,0 +1,18 @@
+{
+  "schema": "greentic.env-manifest.v1",
+  "environment": {
+    "id": "local"
+  },
+  "updates": {
+    "plan_endpoint": "https://greentic-plan-server.vladik-dobrik.workers.dev/v1/environments/demo-2460c6c326fdbef7/plan",
+    "on_notify": "apply",
+    "poll_interval_secs": 60
+  },
+  "bundles": [
+    {
+      "bundle_id": "updatedemo",
+      "bundle_path": "/home/vampik/greenticai/my_demos/cloud-update-demo/build/v1.gtbundle",
+      "bundle_digest": "sha256:6e6f24f5c3f12c41eaa46d92a54632a131c65b0b7d591c9759a18792700bbb8f"
+    }
+  ]
+}

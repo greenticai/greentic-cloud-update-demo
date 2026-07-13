@@ -99,12 +99,39 @@ plan is the only thing that binds them. Artifacts are large, cacheable and
 monotonic sequence and an audit trail. Colocating them would be the wrong
 simplification.
 
+## Drive it by hand
+
+`./demo.sh` tells the whole story unattended. To drive the channel yourself and
+watch a running environment change under you, use the step commands instead —
+you can flip between v1 and v2 as many times as you like:
+
+```bash
+./demo.sh env            # create the env, apply v1, subscribe to the channel
+./demo.sh serve          # run the runtime (keep this terminal open)
+
+# ...in a second terminal:
+./demo.sh switch v2      # publish v2 → within 60s the runtime converges to it
+./demo.sh status         # what you serve vs what the server holds
+./demo.sh switch v1      # and back again
+```
+
+Switching back to v1 is **not** a downgrade. Anti-rollback guards the plan
+`sequence`, which only ever grows; the content the plan points at is free to move
+in either direction. Publish v1 after v2 and the sequence goes 1 → 2 while the
+live bundle returns to webchat-only.
+
 ## Commands
 
 ```bash
-./demo.sh          # run it
-./demo.sh fetch    # download + verify the release artifacts only
-./demo.sh clean    # remove home/, bin/ and logs (keeps the caches)
+./demo.sh                # the whole story, unattended (content + binary update)
+
+./demo.sh env            # create the environment, apply v1, subscribe
+./demo.sh serve          # run the runtime in the foreground
+./demo.sh switch v1|v2   # publish that version to the plan server
+./demo.sh status         # what your runtime serves vs what the server holds
+
+./demo.sh fetch          # download + verify the release artifacts only
+./demo.sh clean          # remove home/, bin/ and logs (keeps the caches)
 ```
 
 Everything lives under `./home/.greentic`; your real `~/.greentic` is never
@@ -121,11 +148,13 @@ touched. Background processes are tracked by PID and killed on exit.
 | What | Why |
 |---|---|
 | `greentic-deployer` ≥ **1.1.10** | `op updates publish` — `cargo binstall greentic-deployer@1.1.10` |
-| `curl`, `tar`, `python3`, `sha256sum` | glue |
+| `bash`, `curl`, `tar`, `python3` | glue |
 
-`greentic-start` is **not** a prerequisite — the demo downloads the two released
-runtimes it moves between and verifies them against their published `.sha256`
-sidecars.
+Runs on **Linux and macOS** with the stock toolchain — no coreutils, no Homebrew.
+(`sha256sum` on Linux, `shasum` on macOS; `ss` or `lsof` for the port check.)
+
+`greentic-start` is **not** a prerequisite — the demo downloads the released
+runtimes it needs and verifies them against their published `.sha256` sidecars.
 
 ## Running your own plan server
 

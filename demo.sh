@@ -7,7 +7,7 @@
 #
 #   greentic-deployer >= 1.1.10   cargo binstall greentic-deployer@1.1.10
 #   greentic-start    >= 1.1.9    (fetched automatically — see below)
-#   curl, tar, python3, sha256sum
+#   curl, tar, python3  (Linux and macOS; no coreutils needed)
 #
 # The plan server is already running at $SERVER. It stores DSSE-signed plans and
 # serves them anonymously. It holds no signing key and cannot forge an update.
@@ -134,8 +134,36 @@ for r in env["revisions"]:
 }
 
 # ===========================================================================
+# Portability: macOS ships neither `sha256sum` nor `ss`. Everything below is
+# POSIX-ish and works on Linux and macOS with the stock toolchain.
+
+# The digest of a file, as bare hex.
+sha256_of() { # <file>
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -d' ' -f1
+  else die "need sha256sum (Linux) or shasum (macOS)"
+  fi
+}
+
+# Compare a file against a `<hash>  <name>` sidecar. `sha256sum -c` would be the
+# obvious call, but macOS has no such thing — so read the hash and compare it.
+sha256_matches() { # <file> <sidecar>
+  local want have
+  want="$(awk '{print $1}' "$2" 2>/dev/null)"
+  have="$(sha256_of "$1")"
+  [ -n "$want" ] && [ "$want" = "$have" ]
+}
+
 # The receiver swaps current_exe(). Refuse to race a stray runtime.
-port_busy() { command -v ss >/dev/null 2>&1 && ss -ltn "sport = :$1" 2>/dev/null | tail -n +2 | grep -q .; }
+port_busy() { # <port>
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltn "sport = :$1" 2>/dev/null | tail -n +2 | grep -q .
+  elif command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
+  else
+    return 1   # cannot tell; the runtime will fail loudly if the port is taken
+  fi
+}
 
 assert_clean_host() {
   # `pgrep -x` matches the kernel's 15-char `comm`, so only greentic-start is
@@ -184,7 +212,7 @@ fetch_verified() { # <url-base> <filename> <destdir>
   fi
   curl -fsSL --retry 3 -o "$dir/$f.sha256" "$base/$f.sha256" \
     || die "checksum sidecar unavailable for $f"
-  ( cd "$dir" && sha256sum -c "$f.sha256" >/dev/null 2>&1 ) \
+  sha256_matches "$out" "$dir/$f.sha256" \
     || die "checksum mismatch for $f — refusing to use it"
   ok "$f (checksum verified)"
 }
@@ -199,7 +227,7 @@ extract_binary() { # <tarball> <destdir>
 }
 
 cmd_fetch() {
-  need curl; need sha256sum; need tar; need python3
+  need curl; need tar; need python3
   step "fetch the release artifacts ($TARGET)"
   fetch_verified "$START_REL/v$VER_FROM" "$(tarball_name "$VER_FROM")" "$CACHE_DIR"
   fetch_verified "$START_REL/v$VER_TO"   "$(tarball_name "$VER_TO")"   "$CACHE_DIR"
@@ -216,6 +244,134 @@ cmd_clean() {
   rm -rf "$HOME_DIR" "$BIN_DIR"
   rm -f "$HERE"/.runtime.log "$HERE"/.session.json
   ok "removed home/, bin/ and logs (caches kept)"
+}
+
+# ===========================================================================
+# The manual flow: `env` → `serve` → `switch v2` / `switch v1` → `status`.
+#
+# Same commands the scripted run makes, one at a time, so you can drive the
+# channel by hand and watch a running environment change under you.
+# ===========================================================================
+
+# Read a field out of the session the plan server minted for this checkout.
+session() { # <field>
+  [ -f "$HERE/.session.json" ] || die "no namespace yet — run: ./demo.sh env"
+  python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))[sys.argv[2]])' \
+    "$HERE/.session.json" "$1"
+}
+
+# Put a greentic-start COPY under ./bin and print its path. Never run the one on
+# your PATH: a plan carrying a binary would swap whatever `current_exe()` is.
+ensure_runtime_bin() {
+  [ -x "$RUNTIME_BIN" ] && return 0
+  need curl; need tar
+  fetch_verified "$START_REL/v$VER_FROM" "$(tarball_name "$VER_FROM")" "$CACHE_DIR"
+  local from_bin
+  from_bin="$(extract_binary "$CACHE_DIR/$(tarball_name "$VER_FROM")" "$CACHE_DIR/x-$VER_FROM")"
+  [ -n "$from_bin" ] || die "no greentic-start inside the $VER_FROM tarball"
+  mkdir -p "$BIN_DIR"
+  cp "$from_bin" "$RUNTIME_BIN"; chmod +x "$RUNTIME_BIN"
+}
+
+cmd_env() {
+  step "create the environment and apply v1"
+  need curl; need tar; need python3
+  need "$DEP" "cargo binstall greentic-deployer@1.1.10"
+  version_at_least "$DEP" 1.1.10
+
+  # Content only — the runtime is fetched lazily by `serve`.
+  mkdir -p "$BUILD_DIR"
+  if [ ! -f "$BUILD_DIR/v1.gtbundle" ] || [ ! -f "$BUILD_DIR/v2.gtbundle" ]; then
+    fetch_verified "$BUNDLE_REL" v1.gtbundle "$BUILD_DIR"
+    fetch_verified "$BUNDLE_REL" v2.gtbundle "$BUILD_DIR"
+  fi
+
+  say "claiming a namespace on $SERVER"
+  curl -fsS --retry 3 -X POST "$SERVER/v1/demo/session" -o "$HERE/.session.json" \
+    || die "could not reach the plan server at $SERVER"
+  PLAN_ENDPOINT="$(session plan_endpoint)"
+  ok "namespace $(session env_id) — expires in 24h"
+
+  mkdir -p "$HERE/manifests"
+  write_manifests
+  ok "manifests/v1.gen.json (carries the \`updates\` block) and v2.gen.json"
+
+  rm -rf "$HOME_DIR"; mkdir -p "$HOME_DIR"
+  say "op env init — mints your operator key, seeds the env's trust root"
+  op env init | python3 -c '
+import json, sys
+r = json.load(sys.stdin)["result"]
+print("    operator_key_id=%s" % r["trust_root"]["operator_key_id"])'
+
+  say "op env apply — deploys v1 AND subscribes to the channel"
+  op env apply --answers "$HERE/manifests/v1.gen.json" >/dev/null \
+    || die "env apply failed"
+  ok "v1 is live:"
+  show_live
+
+  info ""
+  info "next:  ./demo.sh serve          (in this terminal — keep it open)"
+  info "then:  ./demo.sh switch v2      (in a second terminal)"
+}
+
+cmd_serve() {
+  [ -f "$HERE/.session.json" ] || die "no environment yet — run: ./demo.sh env"
+  assert_clean_host
+  ensure_runtime_bin
+  step "serving env \`$ENV_ID\` — polling $(session env_id) every ${POLL_SECS}s"
+  info "publish from another terminal:  ./demo.sh switch v2"
+  info "Ctrl-C to stop."
+  echo
+  # Foreground on purpose: its log IS the demo. Convergence shows up here.
+  exec env HOME="$HOME_DIR" "$RUNTIME_BIN" start --env "$ENV_ID" --no-browser
+}
+
+cmd_switch() { # <v1|v2>
+  local v="${1:-}"
+  case "$v" in v1|v2) ;; *) die "usage: $0 switch v1|v2" ;; esac
+  [ -f "$HERE/manifests/$v.gen.json" ] || die "no manifests — run: ./demo.sh env"
+
+  step "publish $v to the plan server"
+  # Switching BACK to v1 is not a downgrade: anti-rollback guards the plan
+  # SEQUENCE (which only ever grows), not the content the plan points at.
+  say "op updates publish — next sequence from the server, sign in memory, upload"
+  env GREENTIC_PLAN_UPLOAD_TOKEN="$(session upload_token)" HOME="$HOME_DIR" "$DEP" \
+    op updates publish "$ENV_ID" --target-file "$HERE/manifests/$v.gen.json" \
+    | python3 -c '
+import json, sys
+r = json.load(sys.stdin)["result"]
+print("    sequence=%s  key_id=%s  plan_sha256=%s…" % (r["sequence"], r["key_id"], r["plan_sha256"][:16]))'
+  ok "uploaded. Nothing was pushed at the runtime."
+  info "within ${POLL_SECS}s it will fetch, verify the signature, and converge."
+  info "watch:  ./demo.sh status"
+}
+
+cmd_status() {
+  step "status"
+  say "what your runtime is actually serving"
+  if [ -n "$(live_digest)" ]; then
+    show_live
+    dim "v1 = [app-webchat-bot]   v2 = [app-webchat-bot, messaging-telegram]"
+  else
+    info "    no environment yet — run: ./demo.sh env"
+    return 0
+  fi
+
+  say "what the plan server is holding"
+  curl -fsS "$SERVER/v1/environments/$(session env_id)/plan/meta" 2>/dev/null \
+    | python3 -c '
+import json, sys
+m = json.load(sys.stdin)
+print("    sequence=%s  plan_sha256=%s…  uploaded_at=%s" % (m["sequence"], m["plan_sha256"][:16], m["uploaded_at"]))' \
+    || info "    no plan published yet"
+
+  if curl -fsS -m 2 "localhost:$RUNTIME_PORT/healthz" >/dev/null 2>&1; then
+    say "runtime is up on :$RUNTIME_PORT"
+    curl -si -m 2 "localhost:$RUNTIME_PORT/healthz" 2>/dev/null \
+      | grep -i 'restart-required' | sed 's/^/    /' || true
+  else
+    dim "runtime is not running — start it with: ./demo.sh serve"
+  fi
 }
 
 # Write the env-manifests for THIS run. `bundle_path` must be absolute: a
@@ -254,7 +410,7 @@ PY
 # ===========================================================================
 cmd_run() {
   step "0. preflight"
-  need curl; need tar; need python3; need sha256sum
+  need curl; need tar; need python3
   need "$DEP" "cargo binstall greentic-deployer@1.1.10"
   version_at_least "$DEP" 1.1.10
   assert_clean_host
@@ -262,7 +418,7 @@ cmd_run() {
   # The PATH runtime is never used — but the swap hazard means we prove it.
   local path_start path_start_sha=""
   if path_start="$(command -v greentic-start 2>/dev/null)" && [ -n "$path_start" ]; then
-    path_start_sha="$(sha256sum "$path_start" | cut -d' ' -f1)"
+    path_start_sha="$(sha256_of "$path_start")"
     dim "PATH greentic-start: $path_start (sha256:${path_start_sha:0:16}…) — must not change"
   fi
 
@@ -357,7 +513,7 @@ print("    status=%s  plan_sha256=%s…" % (r["status"], r["plan_sha256"][:16]))
   local to_dir="$CACHE_DIR/x-$VER_TO" to_bin inner_sha
   to_bin="$(extract_binary "$CACHE_DIR/$(tarball_name "$VER_TO")" "$to_dir")"
   [ -n "$to_bin" ] || die "no greentic-start inside the $VER_TO tarball"
-  inner_sha="$(sha256sum "$to_bin" | cut -d' ' -f1)"
+  inner_sha="$(sha256_of "$to_bin")"
   local source_url="$START_REL/v$VER_TO/$(tarball_name "$VER_TO")"
   info "target   greentic-start $VER_TO  sha256:${inner_sha:0:16}…"
   info "source   $source_url"
@@ -390,7 +546,7 @@ import json, sys
 m = json.load(open(sys.argv[1]))
 print("    %s -> %s   restart_required" % (m["from_version"], m["to_version"]))' "$marker"
 
-  local disk_sha; disk_sha="$(sha256sum "$RUNTIME_BIN" | cut -d' ' -f1)"
+  local disk_sha; disk_sha="$(sha256_of "$RUNTIME_BIN")"
   [ "$disk_sha" = "$inner_sha" ] \
     || die "the binary on disk is not the one the plan pinned
     pinned  sha256:$inner_sha
@@ -408,7 +564,7 @@ print("    %s -> %s   restart_required" % (m["from_version"], m["to_version"]))'
 
   # The whole point of the ./bin copy: your PATH binary is untouched.
   if [ -n "$path_start_sha" ]; then
-    [ "$(sha256sum "$path_start" | cut -d' ' -f1)" = "$path_start_sha" ] \
+    [ "$(sha256_of "$path_start")" = "$path_start_sha" ] \
       || die "the greentic-start on your PATH was modified — this must never happen"
     ok "the greentic-start on your PATH is byte-for-byte unchanged"
   fi
@@ -427,8 +583,22 @@ print("    %s -> %s   restart_required" % (m["from_version"], m["to_version"]))'
 }
 
 case "${1:-run}" in
-  run)   cmd_run ;;
-  fetch) cmd_fetch ;;
-  clean) cmd_clean ;;
-  *)     die "usage: $0 [run|fetch|clean]" ;;
+  run)    cmd_run ;;
+  env)    cmd_env ;;
+  serve)  cmd_serve ;;
+  switch) shift; cmd_switch "${1:-}" ;;
+  status) cmd_status ;;
+  fetch)  cmd_fetch ;;
+  clean)  cmd_clean ;;
+  *)      die "usage: $0 [run|env|serve|switch v1|v2|status|fetch|clean]
+
+  run              the whole story, unattended (content + binary update)
+
+  env              create the environment, apply v1, subscribe to the channel
+  serve            run the runtime in the foreground (keep the terminal open)
+  switch v1|v2     publish that version to the plan server
+  status           what your runtime serves vs what the server holds
+
+  fetch            download + verify the release artifacts only
+  clean            remove home/, bin/ and logs (keeps the caches)" ;;
 esac

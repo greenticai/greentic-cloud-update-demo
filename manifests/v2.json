@@ -1,0 +1,13 @@
+{
+  "schema": "greentic.env-manifest.v1",
+  "environment": {
+    "id": "local"
+  },
+  "bundles": [
+    {
+      "bundle_id": "updatedemo",
+      "bundle_path": "/home/vampik/greenticai/my_demos/cloud-update-demo/build/v2.gtbundle",
+      "bundle_digest": "sha256:feb45fafda62abe23b4c479d25120f82e6450745d4984d6ca105886cffecbe83"
+    }
+  ]
+}
