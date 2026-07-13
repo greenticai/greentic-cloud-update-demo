@@ -259,8 +259,8 @@
 
 <h2>1. Prepare your machine</h2>
 <p>
-  One binary to install; <code>bash</code>, <code>curl</code> and
-  <code>python3</code> you already have. Works on Linux and macOS.
+  One command installs the whole pinned toolchain. <code>bash</code>,
+  <code>curl</code> and <code>python3</code> you already have. Linux and macOS.
 </p>
 
 <div class="term">
@@ -268,20 +268,35 @@
     <span class="dot" style="background:#e5695f"></span>
     <span class="dot" style="background:#e0b551"></span>
     <span class="dot" style="background:#67bf6b"></span>
-    <span class="term-title">terminal — install &amp; fetch the two bundles</span>
+    <span class="term-title">terminal — install</span>
     <button class="copy">copy</button>
   </div>
-<pre><span class="p">$</span> cargo binstall greentic-deployer@1.1.10 greentic-start@1.1.9
+<pre><span class="p">$</span> cargo binstall gtc
+<span class="p">$</span> gtc install --release 1.1.2
 
 <span class="p">$</span> export DEMO=~/greentic-demo
-<span class="p">$</span> mkdir -p $DEMO/bundles $DEMO/home &amp;&amp; cd $DEMO
+<span class="p">$</span> mkdir -p $DEMO/home &amp;&amp; cd $DEMO</pre>
+</div>
 
-<span class="p">$</span> REL=https://github.com/greenticai/greentic-cloud-update-demo/releases/download/content-v1
-<span class="p">$</span> curl -fsSL -o bundles/v1.gtbundle $REL/v1.gtbundle
-<span class="p">$</span> curl -fsSL -o bundles/v2.gtbundle $REL/v2.gtbundle
+<p class="sub">
+  Release <strong>1.1.2</strong> pins <code>greentic-deployer</code>&nbsp;1.1.11 and
+  <code>greentic-start</code>&nbsp;1.1.11, which is everything this demo needs.
+</p>
 
-<span class="c"># the page needs this absolute path — copy what it prints</span>
-<span class="p">$</span> echo $DEMO/bundles</pre>
+<div class="note">
+  <p><strong>There are no bundles to download.</strong></p>
+  <p>
+    The plan names its bundle with an <code>oci://</code> reference, and
+    <code>op env apply</code> pulls it from the registry itself. Nothing is
+    copied to your machine ahead of time, and the page never needs to know a
+    single path on your filesystem.
+  </p>
+  <p style="margin-top:10px">
+    The plan still pins the bundle's <code>sha256</code>. Apply fails closed
+    unless the bytes it pulled hash to exactly that — so the registry, exactly
+    like the plan server, is an untrusted delivery channel and not a trusted
+    party.
+  </p>
 </div>
 
 <div class="warn">
@@ -309,11 +324,6 @@
     <code class="val" id="ns">none yet</code>
     <button class="btn ghost" id="btn-ns">Claim a namespace</button>
   </div>
-  <div class="row">
-    <span class="label"><label for="bundles">Bundles directory<br><span class="hint">the path <code>echo $DEMO/bundles</code> printed</span></label></span>
-    <input id="bundles" type="text" spellcheck="false" placeholder="/home/you/greentic-demo/bundles">
-  </div>
-
   <div class="actions">
     <button class="btn primary" id="btn-v1" disabled>Publish&nbsp;v1 <span class="tag">1 pack</span></button>
     <button class="btn primary" id="btn-v2" disabled>Publish&nbsp;v2 <span class="tag">2 packs</span></button>
@@ -451,11 +461,17 @@ print("packs:", ", ".join(p["pack_id"] for r in rows for p in r["pack_list"]) or
   runtime.
 </p>
 
-<h3>“bundle not found” in the runtime log</h3>
+<h3>Apply cannot pull the bundle</h3>
 <p>
-  The <strong>bundles directory</strong> you typed into the console is baked into
-  the signed plan as an absolute path. It must be the real path on the machine
-  running <code>greentic-start</code>. Fix the field and publish again.
+  <code>op env apply</code> fetches the bundle from
+  <code>ghcr.io</code> anonymously — no login, no Docker. If it fails, you are
+  either offline or behind a proxy that blocks the registry. The error names the
+  <code>oci://</code> ref it tried.
+</p>
+<p>
+  A <em>digest mismatch</em> is different, and is the system working: apply pulled
+  bytes that do not hash to the digest pinned in the signed plan, and refused
+  them rather than deploying whatever the registry handed over.
 </p>
 
 <h3>Your browser has no Ed25519</h3>
@@ -474,14 +490,22 @@ print("packs:", ", ".join(p["pack_id"] for r in rows for p in r["pack_list"]) or
 </div>
 
 <script type="module">
-import { loadOrCreateKey, publish, manifestFor, currentSequence } from "./publisher.js";
+import { loadOrCreateKey, publish, manifestFor } from "./publisher.js";
 
 const SERVER = "https://greentic-plan-server.vladik-dobrik.workers.dev";
-// Digests of the published release assets. The plan pins these; the runtime
-// refuses a bundle whose bytes do not match.
-const DIGEST = {
-  v1: "6e6f24f5c3f12c41eaa46d92a54632a131c65b0b7d591c9759a18792700bbb8f",
-  v2: "feb45fafda62abe23b4c479d25120f82e6450745d4984d6ca105886cffecbe83",
+
+// The two bundles, as OCI refs. `op env apply` pulls them from the registry, so
+// nothing is downloaded to the user's machine in advance. The digest pins the
+// bytes: apply fails closed unless what it pulled hashes to this.
+const BUNDLE = {
+  v1: {
+    ref: "oci://ghcr.io/greenticai/greentic-cloud-update-demo/v1:1",
+    digest: "6e6f24f5c3f12c41eaa46d92a54632a131c65b0b7d591c9759a18792700bbb8f",
+  },
+  v2: {
+    ref: "oci://ghcr.io/greenticai/greentic-cloud-update-demo/v2:1",
+    digest: "feb45fafda62abe23b4c479d25120f82e6450745d4984d6ca105886cffecbe83",
+  },
 };
 
 const $ = (id) => document.getElementById(id);
@@ -494,12 +518,6 @@ const log = (msg, cls = "") => {
 
 let key = null;
 let session = JSON.parse(localStorage.getItem("greentic.demo.session") || "null");
-
-$("bundles").value = localStorage.getItem("greentic.demo.bundles") || "";
-$("bundles").addEventListener("input", (e) => {
-  localStorage.setItem("greentic.demo.bundles", e.target.value.trim());
-  refresh();
-});
 
 function esc(s) {
   return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
@@ -570,15 +588,10 @@ $("btn-ns").addEventListener("click", async () => {
 });
 
 async function doPublish(version) {
-  const dir = $("bundles").value.trim();
-  if (!dir.startsWith("/")) {
-    log("enter the absolute bundles directory first (step 1 printed it)", "err");
-    return;
-  }
   const btn = $(`btn-${version}`);
   btn.disabled = true;
   try {
-    const target = manifestFor(version, dir, DIGEST[version]);
+    const target = manifestFor(BUNDLE[version].ref, BUNDLE[version].digest);
     const { sequence } = await publish({
       key,
       planEndpoint: session.plan_endpoint,

@@ -11,12 +11,27 @@
 #
 # The two must differ, or there is nothing to converge to — asserted below.
 #
-# Publishing the result:
+# Publishing the result — the demo pulls bundles from GHCR by `oci://` ref, so
+# nothing is downloaded to a user's machine and no release asset is involved:
+#
 #   ./build-bundles.sh
-#   cd build && sha256sum v1.gtbundle > v1.gtbundle.sha256 \
-#            && sha256sum v2.gtbundle > v2.gtbundle.sha256
-#   gh release upload content-v1 v1.gtbundle v1.gtbundle.sha256 \
-#                                v2.gtbundle v2.gtbundle.sha256
+#   gh auth token | oras login ghcr.io -u <you> --password-stdin
+#   cd build
+#   for v in v1 v2; do
+#     oras push ghcr.io/greenticai/greentic-cloud-update-demo/$v:1 \
+#       --artifact-type application/vnd.unknown.artifact.v1 \
+#       --annotation "org.opencontainers.image.source=https://github.com/greenticai/greentic-cloud-update-demo" \
+#       $v.gtbundle:application/octet-stream
+#   done
+#
+# A NEW package is private by default and GitHub has no API to change that, so
+# flip each one to Public once, by hand, at
+#   https://github.com/orgs/greenticai/packages
+# Then `op env apply` can pull it anonymously — no login, no Docker.
+#
+# The layer digest oras prints for each push IS the .gtbundle's sha256; paste it
+# into V1_DIGEST / V2_DIGEST in demo.sh and BUNDLE in docs/index.html, which is
+# what the signed plan pins.
 # ===========================================================================
 set -euo pipefail
 

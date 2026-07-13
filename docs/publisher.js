@@ -204,15 +204,25 @@ export async function publish({ key, planEndpoint, uploadToken, envId, target })
   return { sequence, planSha256 };
 }
 
-/** The env-manifest the plan carries. bundlesDir is a path on the USER's machine. */
-export function manifestFor(version, bundlesDir, digest, envId = "local") {
+/**
+ * The env-manifest the plan carries.
+ *
+ * The bundle is named by an `oci://` ref, not a local path: `op env apply` pulls
+ * it from the registry itself, so nothing has to be downloaded to the machine
+ * first and the page needs to know nothing about the user's filesystem.
+ *
+ * `bundle_digest` pins the bytes. Apply fails closed unless the artifact it
+ * pulled hashes to exactly this — so the registry, like the plan server, is an
+ * untrusted delivery channel rather than a trusted one.
+ */
+export function manifestFor(ociRef, digest, envId = "local") {
   return {
     schema: "greentic.env-manifest.v1",
     environment: { id: envId },
     bundles: [
       {
         bundle_id: "updatedemo",
-        bundle_path: `${bundlesDir.replace(/\/+$/, "")}/${version}.gtbundle`,
+        bundle_source_uri: ociRef,
         bundle_digest: `sha256:${digest}`,
       },
     ],

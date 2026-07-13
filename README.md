@@ -10,11 +10,13 @@ environment is a signature made by a key that was minted on your machine.
 ```bash
 git clone https://github.com/greenticai/greentic-cloud-update-demo
 cd greentic-cloud-update-demo
-cargo binstall greentic-deployer@1.1.10   # the only thing to install
+cargo binstall gtc && gtc install --release 1.1.2   # the pinned toolchain
 ./demo.sh
 ```
 
-No Cloudflare account. No server to build. No bundles to compile. ~3 minutes.
+No Cloudflare account. No server to build. **No bundles to download** — the plan
+names them by `oci://` ref and `op env apply` pulls them from GHCR itself.
+~3 minutes.
 
 ```
        operator key — minted on YOUR machine by `op env init`,
@@ -164,14 +166,19 @@ touched. Background processes are tracked by PID and killed on exit.
 
 | What | Why |
 |---|---|
-| `greentic-deployer` ≥ **1.1.10** | `op updates publish` — `cargo binstall greentic-deployer@1.1.10` |
+| toolchain release **1.1.2** | `cargo binstall gtc && gtc install --release 1.1.2` — pins `greentic-deployer` 1.1.11 and `greentic-start` 1.1.11 |
 | `bash`, `curl`, `tar`, `python3` | glue |
 
 Runs on **Linux and macOS** with the stock toolchain — no coreutils, no Homebrew.
 (`sha256sum` on Linux, `shasum` on macOS; `ss` or `lsof` for the port check.)
 
-`greentic-start` is **not** a prerequisite — the demo downloads the released
-runtimes it needs and verifies them against their published `.sha256` sidecars.
+The **content is never copied to your machine**. Each bundle is named in the
+manifest by an `oci://` ref under
+`ghcr.io/greenticai/greentic-cloud-update-demo`, and `op env apply` pulls it from
+the registry anonymously — no login, no Docker. The plan pins the bundle's
+`sha256`, and apply **fails closed** unless the bytes it pulled hash to exactly
+that: the registry is an untrusted delivery channel, precisely like the plan
+server.
 
 ## Running your own plan server
 

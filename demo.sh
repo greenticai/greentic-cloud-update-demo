@@ -5,8 +5,8 @@
 #
 # Anyone can run this. There is nothing to build and no account to create:
 #
-#   greentic-deployer >= 1.1.10   cargo binstall greentic-deployer@1.1.10
-#   greentic-start    >= 1.1.9    (fetched automatically — see below)
+#   the pinned toolchain          cargo binstall gtc && gtc install --release 1.1.2
+#                                 (deployer 1.1.11 + greentic-start 1.1.11)
 #   curl, tar, python3  (Linux and macOS; no coreutils needed)
 #
 # The plan server is already running at $SERVER. It stores DSSE-signed plans and
@@ -61,13 +61,17 @@ VER_TO="${VER_TO:-1.1.11}"             # strictly newer: the runtime refuses <=
 START_REL="https://github.com/greenticai/greentic-start/releases/download"
 
 # --- content: two versions of one bundle ----------------------------------
-# Prebuilt and published as release assets, so running this needs no toolchain.
-# Maintainers rebuild them with ./build-bundles.sh (needs gtc + the sample packs).
-BUNDLE_REL="${BUNDLE_REL:-https://github.com/greenticai/greentic-cloud-update-demo/releases/download/content-v1}"
+# Named by `oci://` ref, never copied here: `op env apply` pulls the bundle from
+# the registry itself. The plan pins the digest below, and apply fails closed
+# unless the bytes it pulled hash to it — so the registry is an untrusted
+# delivery channel, exactly like the plan server.
+# Maintainers rebuild and republish them with ./build-bundles.sh.
+OCI_BASE="${OCI_BASE:-oci://ghcr.io/greenticai/greentic-cloud-update-demo}"
+V1_DIGEST="6e6f24f5c3f12c41eaa46d92a54632a131c65b0b7d591c9759a18792700bbb8f"
+V2_DIGEST="feb45fafda62abe23b4c479d25120f82e6450745d4984d6ca105886cffecbe83"
 
 # --- demo-local state (never touches your real ~/.greentic) ---------------
 HOME_DIR="$HERE/home"                  # becomes $HOME for every command below
-BUILD_DIR="$HERE/build"                # v1/v2 bundles
 CACHE_DIR="$HERE/release-cache"        # downloaded runtime tarballs
 BIN_DIR="$HERE/bin"                    # the runtime COPY that the swap replaces
 RUNTIME_BIN="$BIN_DIR/greentic-start"
@@ -231,13 +235,7 @@ cmd_fetch() {
   step "fetch the release artifacts ($TARGET)"
   fetch_verified "$START_REL/v$VER_FROM" "$(tarball_name "$VER_FROM")" "$CACHE_DIR"
   fetch_verified "$START_REL/v$VER_TO"   "$(tarball_name "$VER_TO")"   "$CACHE_DIR"
-  # Bundles: only fetched when not built locally (see ./build-bundles.sh).
-  if [ ! -f "$BUILD_DIR/v1.gtbundle" ] || [ ! -f "$BUILD_DIR/v2.gtbundle" ]; then
-    fetch_verified "$BUNDLE_REL" v1.gtbundle "$BUILD_DIR"
-    fetch_verified "$BUNDLE_REL" v2.gtbundle "$BUILD_DIR"
-  else
-    ok "v1.gtbundle, v2.gtbundle (built locally)"
-  fi
+  dim "no bundles are downloaded — apply pulls them from ${OCI_BASE#oci://}"
 }
 
 cmd_clean() {
@@ -276,15 +274,8 @@ ensure_runtime_bin() {
 cmd_env() {
   step "create the environment and apply v1"
   need curl; need tar; need python3
-  need "$DEP" "cargo binstall greentic-deployer@1.1.10"
+  need "$DEP" "cargo binstall gtc && gtc install --release 1.1.2"
   version_at_least "$DEP" 1.1.10
-
-  # Content only — the runtime is fetched lazily by `serve`.
-  mkdir -p "$BUILD_DIR"
-  if [ ! -f "$BUILD_DIR/v1.gtbundle" ] || [ ! -f "$BUILD_DIR/v2.gtbundle" ]; then
-    fetch_verified "$BUNDLE_REL" v1.gtbundle "$BUILD_DIR"
-    fetch_verified "$BUNDLE_REL" v2.gtbundle "$BUILD_DIR"
-  fi
 
   say "claiming a namespace on $SERVER"
   curl -fsS --retry 3 -X POST "$SERVER/v1/demo/session" -o "$HERE/.session.json" \
@@ -374,36 +365,34 @@ print("    sequence=%s  plan_sha256=%s…  uploaded_at=%s" % (m["sequence"], m["
   fi
 }
 
-# Write the env-manifests for THIS run. `bundle_path` must be absolute: a
-# relative path resolves against $HOME, not the working directory. Bundles are
-# not byte-deterministic across builds, so digests are recomputed, never fixed.
+# Write the env-manifests for THIS run. The bundle is named by an `oci://` ref
+# and pinned by digest — nothing is read from the local filesystem, so there is
+# no absolute-path trap and nothing to download first.
 #
 # Only v1 carries the `updates` block — that is the subscription, and the only
 # place it may live. `op updates publish` STRIPS `updates` from a plan target
 # before signing: a signed plan that could re-point the channel it arrived on
 # would be a self-perpetuating takeover primitive.
 write_manifests() {
-  python3 - "$BUILD_DIR" "$ENV_ID" "$BUNDLE_ID" "$HERE" "$PLAN_ENDPOINT" "$POLL_SECS" <<'PY'
-import hashlib, json, sys
-build, env_id, bundle_id, here, endpoint, poll = sys.argv[1:7]
+  python3 - "$OCI_BASE" "$V1_DIGEST" "$V2_DIGEST" "$ENV_ID" "$BUNDLE_ID" "$HERE" "$PLAN_ENDPOINT" "$POLL_SECS" <<'PY'
+import json, sys
+oci, v1d, v2d, env_id, bundle_id, here, endpoint, poll = sys.argv[1:9]
 
-def manifest(version, updates=None):
-    path = "%s/%s.gtbundle" % (build, version)
-    digest = hashlib.sha256(open(path, "rb").read()).hexdigest()
+def manifest(version, digest, updates=None):
     doc = {"schema": "greentic.env-manifest.v1", "environment": {"id": env_id}}
     if updates:
         doc["updates"] = updates
     doc["bundles"] = [{"bundle_id": bundle_id,
-                       "bundle_path": path,
+                       "bundle_source_uri": "%s/%s:1" % (oci, version),
                        "bundle_digest": "sha256:" + digest}]
     with open("%s/manifests/%s.gen.json" % (here, version), "w") as fh:
         json.dump(doc, fh, indent=2)
         fh.write("\n")
 
-manifest("v1", {"plan_endpoint": endpoint,
-                "on_notify": "apply",
-                "poll_interval_secs": int(poll)})
-manifest("v2")
+manifest("v1", v1d, {"plan_endpoint": endpoint,
+                     "on_notify": "apply",
+                     "poll_interval_secs": int(poll)})
+manifest("v2", v2d)
 PY
 }
 
@@ -411,7 +400,7 @@ PY
 cmd_run() {
   step "0. preflight"
   need curl; need tar; need python3
-  need "$DEP" "cargo binstall greentic-deployer@1.1.10"
+  need "$DEP" "cargo binstall gtc && gtc install --release 1.1.2"
   version_at_least "$DEP" 1.1.10
   assert_clean_host
 
