@@ -1,0 +1,586 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Run the Greentic cloud-update demo</title>
+<style>
+  :root {
+    --bg: #fbfbfa;
+    --panel: #ffffff;
+    --ink: #1a1a1a;
+    --muted: #63625e;
+    --faint: #8f8e89;
+    --rule: #e4e3df;
+    --accent: #0d7a5f;
+    --accent-soft: #e6f2ee;
+    --warn: #9a3412;
+    --warn-soft: #fdf1e7;
+    --term-bg: #16181d;
+    --term-ink: #d7dae0;
+    --term-dim: #6f7684;
+    --term-grn: #7ec699;
+    --term-cyn: #6cb6d9;
+    --term-yel: #d9b06c;
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14151a;
+      --panel: #1b1d23;
+      --ink: #e6e6e4;
+      --muted: #a3a29e;
+      --faint: #77766f;
+      --rule: #2c2f37;
+      --accent: #52c39e;
+      --accent-soft: #16302a;
+      --warn: #e8a877;
+      --warn-soft: #2f2116;
+      --term-bg: #0e1014;
+      --term-ink: #d7dae0;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #fbfbfa; --panel: #ffffff; --ink: #1a1a1a; --muted: #63625e;
+    --faint: #8f8e89; --rule: #e4e3df; --accent: #0d7a5f; --accent-soft: #e6f2ee;
+    --warn: #9a3412; --warn-soft: #fdf1e7; --term-bg: #16181d; --term-ink: #d7dae0;
+  }
+  :root[data-theme="dark"] {
+    --bg: #14151a; --panel: #1b1d23; --ink: #e6e6e4; --muted: #a3a29e;
+    --faint: #77766f; --rule: #2c2f37; --accent: #52c39e; --accent-soft: #16302a;
+    --warn: #e8a877; --warn-soft: #2f2116; --term-bg: #0e1014; --term-ink: #d7dae0;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.65 ui-sans-serif, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 800px; margin: 0 auto; padding: 0 22px 96px; }
+
+  header { padding: 64px 0 34px; border-bottom: 1px solid var(--rule); }
+  .eyebrow {
+    font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: .12em; text-transform: uppercase; color: var(--accent);
+    margin-bottom: 16px;
+  }
+  h1 { font-size: 2.1rem; line-height: 1.2; margin: 0 0 14px; letter-spacing: -.02em; }
+  .lede { font-size: 1.12rem; color: var(--muted); margin: 0; max-width: 62ch; }
+
+  h2 {
+    font-size: 1.32rem; margin: 56px 0 8px; letter-spacing: -.01em;
+    padding-top: 22px; border-top: 1px solid var(--rule);
+  }
+  h2:first-of-type { border-top: 0; padding-top: 0; }
+  h3 { font-size: 1.02rem; margin: 30px 0 6px; }
+  p { margin: 12px 0; }
+  .sub { color: var(--muted); margin-top: 4px; }
+  a { color: var(--accent); text-decoration: none; border-bottom: 1px solid transparent; }
+  a:hover { border-bottom-color: currentColor; }
+  code:not(pre code) {
+    font: 13.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: var(--accent-soft); color: var(--ink);
+    padding: 1px 5px; border-radius: 4px; word-break: break-word;
+  }
+
+  /* terminal blocks */
+  .term {
+    position: relative; margin: 16px 0;
+    background: var(--term-bg); border-radius: var(--radius);
+    overflow: hidden; border: 1px solid rgba(255,255,255,.06);
+  }
+  .term-bar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 12px; border-bottom: 1px solid rgba(255,255,255,.07);
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .term-title {
+    margin-left: 6px; color: var(--term-dim);
+    font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: .04em;
+  }
+  .copy {
+    margin-left: auto; background: transparent; color: var(--term-dim);
+    border: 1px solid rgba(255,255,255,.14); border-radius: 5px;
+    font: 11px/1 ui-monospace, Menlo, monospace; padding: 5px 9px; cursor: pointer;
+  }
+  .copy:hover { color: var(--term-ink); border-color: rgba(255,255,255,.3); }
+  .copy.done { color: var(--term-grn); border-color: var(--term-grn); }
+  pre {
+    margin: 0; padding: 15px 16px; overflow-x: auto;
+    font: 13.2px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--term-ink);
+  }
+  pre .p { color: var(--term-grn); }      /* prompt        */
+  pre .c { color: var(--term-dim); }      /* comment       */
+  pre .o { color: var(--term-cyn); }      /* emphasis/out  */
+  pre .y { color: var(--term-yel); }      /* highlight     */
+
+  .note, .warn {
+    border-radius: var(--radius); padding: 14px 16px; margin: 20px 0;
+    border-left: 3px solid var(--accent); background: var(--accent-soft);
+  }
+  .warn { border-left-color: var(--warn); background: var(--warn-soft); }
+  .note p:first-child, .warn p:first-child { margin-top: 0; }
+  .note p:last-child, .warn p:last-child { margin-bottom: 0; }
+  .note strong, .warn strong { display: block; margin-bottom: 3px; }
+  .warn strong { color: var(--warn); }
+
+  .steps { counter-reset: s; padding: 0; margin: 26px 0 0; list-style: none; }
+  .steps > li {
+    counter-increment: s; position: relative;
+    padding: 0 0 4px 46px; margin-bottom: 34px;
+  }
+  .steps > li::before {
+    content: counter(s);
+    position: absolute; left: 0; top: 1px;
+    width: 29px; height: 29px; border-radius: 50%;
+    background: var(--panel); border: 1px solid var(--rule); color: var(--accent);
+    font: 600 13px/28px ui-monospace, Menlo, monospace; text-align: center;
+  }
+  .steps h3 { margin-top: 0; }
+
+  table { width: 100%; border-collapse: collapse; margin: 18px 0; font-size: .94rem; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { font-weight: 600; color: var(--muted); font-size: .82rem; text-transform: uppercase; letter-spacing: .05em; }
+  td code { white-space: nowrap; }
+  .scroll { overflow-x: auto; }
+
+  .flow {
+    background: var(--panel); border: 1px solid var(--rule); border-radius: var(--radius);
+    padding: 18px; margin: 22px 0; overflow-x: auto;
+  }
+  .flow pre { background: none; color: var(--muted); padding: 0; font-size: 12.4px; line-height: 1.55; }
+
+  footer {
+    margin-top: 72px; padding-top: 22px; border-top: 1px solid var(--rule);
+    color: var(--faint); font-size: .88rem;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">Greentic · cloud-update-demo</div>
+  <h1>Update a running environment from a server it doesn't trust</h1>
+  <p class="lede">
+    Start an environment on your own machine. Publish a new version to a plan
+    server on the internet. The runtime discovers it, verifies the signature
+    against a key it already holds, and moves traffic onto it &mdash; by itself,
+    with no restart, and without ever trusting the server.
+  </p>
+</header>
+
+<h2>What you're about to run</h2>
+<p>
+  Everything runs on your PC. The only thing in the cloud is a <strong>plan
+  store</strong>: a dumb server that holds signed bytes and answers GETs. It has
+  no signing key, so it cannot invent an update &mdash; it can only fail to hand
+  one over, which your runtime survives.
+</p>
+
+<div class="flow">
+<pre>   your operator key                       (minted on YOUR machine by `op env init`,
+        │  signs                           trusted by YOUR env, never uploaded)
+        ▼
+  ┌────────────────┐   sign + upload    ┌──────────────────────┐
+  │  op updates    │ ─────────────────▶ │   plan server        │
+  │  publish       │                    │   stores bytes.      │
+  └────────────────┘                    │   holds no keys.     │
+                                        └──────────────────────┘
+                                                   ▲
+                                    anonymous GET  │  (poll every 60s)
+                                                   │
+  ┌──────────────────────────────────────────────────────────┐
+  │  greentic-start  ── verify signature vs trust root       │
+  │                  ── snapshot → apply → roll back on fail │
+  └──────────────────────────────────────────────────────────┘
+             v1  (webchat)   ⇄   v2  (webchat + telegram)</pre>
+</div>
+
+<p class="sub">
+  You'll flip that environment between <strong>v1</strong> and <strong>v2</strong>
+  as many times as you like, from the server, while it keeps serving.
+</p>
+
+<h2>Before you start</h2>
+
+<div class="scroll">
+<table>
+  <tr><th>What</th><th>Why</th></tr>
+  <tr>
+    <td><code>greentic-deployer</code> &ge; 1.1.10</td>
+    <td>The only thing you install. It signs and publishes plans.</td>
+  </tr>
+  <tr>
+    <td><code>bash</code>, <code>curl</code>, <code>tar</code>, <code>python3</code></td>
+    <td>Already on every Linux and macOS box.</td>
+  </tr>
+</table>
+</div>
+
+<p>
+  Works on <strong>Linux</strong> and <strong>macOS</strong> (Intel and Apple
+  Silicon) with the stock toolchain &mdash; no Homebrew, no coreutils.
+  <code>greentic-start</code> is <em>not</em> a prerequisite: the demo downloads
+  the released runtime it needs and checks it against the published
+  <code>.sha256</code> sidecar before running a byte of it.
+</p>
+
+<div class="term">
+  <div class="term-bar">
+    <span class="dot" style="background:#e5695f"></span>
+    <span class="dot" style="background:#e0b551"></span>
+    <span class="dot" style="background:#67bf6b"></span>
+    <span class="term-title">install &amp; clone</span>
+    <button class="copy">copy</button>
+  </div>
+<pre><span class="p">$</span> cargo binstall greentic-deployer@1.1.10
+
+<span class="p">$</span> git clone https://github.com/greenticai/greentic-cloud-update-demo
+<span class="p">$</span> cd greentic-cloud-update-demo</pre>
+</div>
+
+<div class="note">
+  <p><strong>Nothing here touches your real setup.</strong></p>
+  <p>
+    Every command runs against an isolated <code>./home</code> inside the
+    checkout, so your real <code>~/.greentic</code> is never read or written.
+    <code>./demo.sh clean</code> removes all of it.
+  </p>
+</div>
+
+<h2>The short version</h2>
+<p>
+  One command runs the entire story unattended &mdash; it applies v1, starts the
+  runtime, publishes v2, waits for the runtime to converge, then publishes a
+  <em>binary</em> update and watches the runtime replace its own executable. It
+  takes about three minutes and asserts every claim it makes.
+</p>
+
+<div class="term">
+  <div class="term-bar">
+    <span class="dot" style="background:#e5695f"></span>
+    <span class="dot" style="background:#e0b551"></span>
+    <span class="dot" style="background:#67bf6b"></span>
+    <span class="term-title">the whole thing</span>
+    <button class="copy">copy</button>
+  </div>
+<pre><span class="p">$</span> ./demo.sh</pre>
+</div>
+
+<p>
+  If you'd rather drive it yourself &mdash; which is the point of the rest of this
+  page &mdash; use the step commands below instead.
+</p>
+
+<h2>Driving it yourself</h2>
+
+<ol class="steps">
+
+<li>
+  <h3>Create the environment and apply v1</h3>
+  <p class="sub">
+    This claims a private namespace on the plan server, mints <em>your</em>
+    operator key, seeds its public half into the environment's trust root, and
+    deploys v1 &mdash; and subscribes to the update channel, because the manifest
+    declares one.
+  </p>
+  <div class="term">
+    <div class="term-bar">
+      <span class="dot" style="background:#e5695f"></span>
+      <span class="dot" style="background:#e0b551"></span>
+      <span class="dot" style="background:#67bf6b"></span>
+      <span class="term-title">terminal 1</span>
+      <button class="copy">copy</button>
+    </div>
+<pre><span class="p">$</span> ./demo.sh env
+
+<span class="o">  ✓ namespace demo-c799f11df600c8d7 — expires in 24h</span>
+<span class="o">  ✓ manifests/v1.gen.json (carries the `updates` block) and v2.gen.json</span>
+<span class="c">▸ op env init — mints your operator key, seeds the env's trust root</span>
+<span class="o">    operator_key_id=13795242d8f8f13909d105efc2842cd7</span>
+<span class="c">▸ op env apply — deploys v1 AND subscribes to the channel</span>
+<span class="o">  ✓ v1 is live:</span>
+<span class="o">    sequence 1   sha256:6e6f24f5…   [app-webchat-bot]</span></pre>
+  </div>
+  <p class="sub">
+    Remember that <code>operator_key_id</code>. Every plan you publish below is
+    signed with it, and the runtime will refuse anything that isn't.
+  </p>
+</li>
+
+<li>
+  <h3>Start the runtime</h3>
+  <p class="sub">
+    It serves v1 and starts polling the plan server every 60 seconds. Leave this
+    terminal open &mdash; its log <em>is</em> the demo.
+  </p>
+  <div class="term">
+    <div class="term-bar">
+      <span class="dot" style="background:#e5695f"></span>
+      <span class="dot" style="background:#e0b551"></span>
+      <span class="dot" style="background:#67bf6b"></span>
+      <span class="term-title">terminal 1 &mdash; keep it running</span>
+      <button class="copy">copy</button>
+    </div>
+<pre><span class="p">$</span> ./demo.sh serve</pre>
+  </div>
+</li>
+
+<li>
+  <h3>Publish v2 to the server</h3>
+  <p class="sub">
+    In a <strong>second terminal</strong>. This signs the v2 manifest in memory,
+    reads the next sequence number off the server, and uploads the bytes. Your
+    private key never leaves the machine.
+  </p>
+  <div class="term">
+    <div class="term-bar">
+      <span class="dot" style="background:#e5695f"></span>
+      <span class="dot" style="background:#e0b551"></span>
+      <span class="dot" style="background:#67bf6b"></span>
+      <span class="term-title">terminal 2</span>
+      <button class="copy">copy</button>
+    </div>
+<pre><span class="p">$</span> ./demo.sh switch v2
+
+<span class="c">▸ op updates publish — next sequence from the server, sign in memory, upload</span>
+<span class="o">    sequence=1  key_id=13795242d8f8f13909d105efc2842cd7</span>
+<span class="o">  ✓ uploaded. Nothing was pushed at the runtime.</span></pre>
+  </div>
+  <p class="sub">
+    Now <strong>do nothing</strong>. Nobody told the runtime anything.
+  </p>
+</li>
+
+<li>
+  <h3>Watch it converge on its own</h3>
+  <p class="sub">
+    Within one poll interval (&le;60s) terminal&nbsp;1 fetches the plan, verifies
+    the signature against its own trust root, snapshots, applies, and moves
+    traffic. No restart.
+  </p>
+  <div class="term">
+    <div class="term-bar">
+      <span class="dot" style="background:#e5695f"></span>
+      <span class="dot" style="background:#e0b551"></span>
+      <span class="dot" style="background:#67bf6b"></span>
+      <span class="term-title">terminal 1 &mdash; the runtime's own log</span>
+    </div>
+<pre><span class="y">update-notify: staged update plan for env `local`</span>
+  deploy-bundle  updatedemo  update  digest sha256:6e6f24f5 → sha256:feb45faf
+<span class="y">update-notify: applied update plan `01KXCW2Q…` to env `local`</span>
+<span class="y">update-poll: env `local` plan sequence 1 -&gt; 200 (applied)</span>
+<span class="y">runtime-config reloaded: 1 → 1 deployment(s), 1 → 1 revision(s)</span></pre>
+  </div>
+</li>
+
+<li>
+  <h3>Check what's live</h3>
+  <p class="sub">
+    <code>status</code> shows what your runtime is actually serving next to what
+    the server is holding. The pack list is the giveaway.
+  </p>
+  <div class="term">
+    <div class="term-bar">
+      <span class="dot" style="background:#e5695f"></span>
+      <span class="dot" style="background:#e0b551"></span>
+      <span class="dot" style="background:#67bf6b"></span>
+      <span class="term-title">terminal 2</span>
+      <button class="copy">copy</button>
+    </div>
+<pre><span class="p">$</span> ./demo.sh status
+
+<span class="c">▸ what your runtime is actually serving</span>
+<span class="o">    sequence 2   sha256:feb45faf…   [app-webchat-bot, messaging-telegram]</span>
+<span class="c">  v1 = [app-webchat-bot]   v2 = [app-webchat-bot, messaging-telegram]</span>
+<span class="c">▸ what the plan server is holding</span>
+<span class="o">    sequence=1  plan_sha256=f69d93e2f4f165a6…</span>
+<span class="c">▸ runtime is up on :8080</span></pre>
+  </div>
+</li>
+
+<li>
+  <h3>Switch back &mdash; and forth, as often as you like</h3>
+  <p class="sub">
+    Publish v1 again and the environment returns to webchat-only, live, in under
+    a minute.
+  </p>
+  <div class="term">
+    <div class="term-bar">
+      <span class="dot" style="background:#e5695f"></span>
+      <span class="dot" style="background:#e0b551"></span>
+      <span class="dot" style="background:#67bf6b"></span>
+      <span class="term-title">terminal 2</span>
+      <button class="copy">copy</button>
+    </div>
+<pre><span class="p">$</span> ./demo.sh switch v1
+<span class="p">$</span> ./demo.sh status
+<span class="o">    sequence 3   sha256:6e6f24f5…   [app-webchat-bot]</span>
+
+<span class="p">$</span> ./demo.sh switch v2
+<span class="p">$</span> ./demo.sh status
+<span class="o">    sequence 4   sha256:feb45faf…   [app-webchat-bot, messaging-telegram]</span></pre>
+  </div>
+
+  <div class="note">
+    <p><strong>Going back to v1 is not a downgrade.</strong></p>
+    <p>
+      Anti-rollback protects the plan <code>sequence</code>, which only ever
+      grows &mdash; 1, 2, 3, 4. The <em>content</em> a plan points at is free to
+      move in either direction. That's why you can flip v1&nbsp;⇄&nbsp;v2 forever
+      while replay of an old signed plan stays impossible.
+    </p>
+  </div>
+</li>
+
+</ol>
+
+<h2>When you're done</h2>
+<div class="term">
+  <div class="term-bar">
+    <span class="dot" style="background:#e5695f"></span>
+    <span class="dot" style="background:#e0b551"></span>
+    <span class="dot" style="background:#67bf6b"></span>
+    <span class="term-title">cleanup</span>
+    <button class="copy">copy</button>
+  </div>
+<pre><span class="c"># Ctrl-C the runtime in terminal 1, then:</span>
+<span class="p">$</span> ./demo.sh clean</pre>
+</div>
+
+<h2>What this actually proves</h2>
+<div class="scroll">
+<table>
+  <tr><th>Claim</th><th>What enforces it</th></tr>
+  <tr>
+    <td>The server can't forge an update</td>
+    <td>Plans are signed by your operator key. The server stores bytes and has no key. A plan it invented would fail verification against your trust root.</td>
+  </tr>
+  <tr>
+    <td>An attacker on the wire can't either</td>
+    <td>Plan reads are anonymous and unauthenticated <em>on purpose</em>. The signature is the trust anchor &mdash; not TLS, not the origin.</td>
+  </tr>
+  <tr>
+    <td>You can't be replayed an old version</td>
+    <td>Every plan carries a monotonic <code>sequence</code>, and the anti-rollback check reads it from the <strong>signed plan</strong>, not from anything the server says.</td>
+  </tr>
+  <tr>
+    <td>Two publishers can't fork the channel</td>
+    <td>The store enforces strict monotonicity inside a Durable Object, so the read-modify-write is serialized. The loser of a race gets a <code>409</code>, never a silent fork.</td>
+  </tr>
+  <tr>
+    <td>Nothing is pushed at your runtime</td>
+    <td>It polls. Discovery is not authority: an environment that never declared an <code>updates</code> block fetches nothing, ever.</td>
+  </tr>
+  <tr>
+    <td>A bad update rolls back</td>
+    <td>Apply runs under a pre-apply snapshot with automatic rollback and post-apply verification.</td>
+  </tr>
+</table>
+</div>
+
+<h2>If something goes wrong</h2>
+
+<h3>“port 8080 is already in use”</h3>
+<p>Something else holds the runtime's port. Free it, or pick another:</p>
+<div class="term">
+  <div class="term-bar">
+    <span class="dot" style="background:#e5695f"></span><span class="dot" style="background:#e0b551"></span><span class="dot" style="background:#67bf6b"></span>
+    <span class="term-title">bash</span>
+    <button class="copy">copy</button>
+  </div>
+<pre><span class="p">$</span> RUNTIME_PORT=8090 ./demo.sh serve</pre>
+</div>
+
+<h3>“a greentic-start is already running”</h3>
+<p>
+  The demo refuses to start while another runtime is alive, and it means it. A
+  stray runtime pointed at this checkout's <code>HOME</code> polls the same
+  channel &mdash; and if a plan carries a binary, it will swap
+  <em>its own</em> executable, which may be the one on your <code>PATH</code>.
+  Stop it (<code>kill &lt;pid&gt;</code>) and re-run.
+</p>
+
+<h3>Your namespace expired</h3>
+<p>
+  Namespaces on the shared server live for 24 hours. Just create the environment
+  again &mdash; you'll get a fresh one:
+</p>
+<div class="term">
+  <div class="term-bar">
+    <span class="dot" style="background:#e5695f"></span><span class="dot" style="background:#e0b551"></span><span class="dot" style="background:#67bf6b"></span>
+    <span class="term-title">bash</span>
+    <button class="copy">copy</button>
+  </div>
+<pre><span class="p">$</span> ./demo.sh env</pre>
+</div>
+
+<div class="warn">
+  <p><strong>Why is the upload endpoint open to anyone?</strong></p>
+  <p>
+    Because it costs an attacker nothing worth having. Guess someone's namespace
+    and the worst you can do is <em>deny</em> them an update: their runtime will
+    reject any plan not signed by a key its trust root already carries. That is
+    the whole point &mdash; the server is not a trusted party, and the demo is
+    built so you can see that for yourself.
+  </p>
+</div>
+
+<h2>Run your own plan server</h2>
+<p>
+  The server is a small Cloudflare Worker, and its source is in
+  <code>server/</code> in the same repo. Deploy your own and point the demo at
+  it &mdash; nothing else about the run changes:
+</p>
+<div class="term">
+  <div class="term-bar">
+    <span class="dot" style="background:#e5695f"></span><span class="dot" style="background:#e0b551"></span><span class="dot" style="background:#67bf6b"></span>
+    <span class="term-title">bash</span>
+    <button class="copy">copy</button>
+  </div>
+<pre><span class="p">$</span> cd server && ./deploy.sh
+
+<span class="p">$</span> SERVER=https://your-worker.workers.dev ./demo.sh env</pre>
+</div>
+
+<footer>
+  Source, and the plan server it talks to:
+  <a href="https://github.com/greenticai/greentic-cloud-update-demo">github.com/greenticai/greentic-cloud-update-demo</a>
+  &nbsp;·&nbsp;
+  <a href="https://greentic.ai">greentic.ai</a>
+</footer>
+
+</div>
+
+<script>
+  document.querySelectorAll(".copy").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var pre = btn.closest(".term").querySelector("pre");
+      // Copy only what you'd actually type: drop output lines and the `$`.
+      var text = pre.innerText
+        .split("\n")
+        .filter(function (l) { return l.trim().startsWith("$") || l.trim().startsWith("#"); })
+        .map(function (l) { return l.replace(/^\s*\$\s?/, ""); })
+        .join("\n")
+        .trim();
+      if (!text) text = pre.innerText.trim();
+      navigator.clipboard.writeText(text).then(function () {
+        var was = btn.textContent;
+        btn.textContent = "copied";
+        btn.classList.add("done");
+        setTimeout(function () {
+          btn.textContent = was;
+          btn.classList.remove("done");
+        }, 1400);
+      });
+    });
+  });
+</script>
+</body>
+</html>
