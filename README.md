@@ -99,6 +99,23 @@ plan is the only thing that binds them. Artifacts are large, cacheable and
 monotonic sequence and an audit trail. Colocating them would be the wrong
 simplification.
 
+## Drive it from a web page
+
+<https://cloud-update-demo.pages.dev> is a publishing console. It generates an
+Ed25519 key **in your browser**, and two buttons publish v1 / v2 to the plan
+server. Your runtime picks the change up within 60s.
+
+Your environment accepts what the page signs for exactly one reason: you add the
+page's *public* key to `trust-root.json`. The private half never leaves the
+browser, and the server never sees it — so the page is an operator console, not a
+new trusted party. The page generates the setup commands with your endpoint and
+key already filled in.
+
+The console's crypto is [`docs/publisher.js`](docs/publisher.js) — byte-compatible
+with `greentic-update`'s `build_update_plan` (pretty-printed plan JSON, compact
+in-toto statement, the non-standard space-delimited DSSE PAE, and
+`key_id = sha256(raw pubkey)[..16]`).
+
 ## Drive it by hand
 
 `./demo.sh` tells the whole story unattended. To drive the channel yourself and

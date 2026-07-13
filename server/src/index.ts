@@ -30,14 +30,41 @@ const SESSIONS_PER_HOUR = 20;
  *   - no Cert-CA routes (`/v1/ca`, `/v1/enroll`, `/v1/revoke`, `/v1/crl`); plan
  *     reads are anonymous, so the demo never enrolls
  */
+/**
+ * CORS is wide open, and that is not an oversight.
+ *
+ * The demo's publishing console is a static web page, so the browser needs to
+ * POST here cross-origin. `*` is safe precisely because this server has no
+ * ambient authority to steal: it holds no signing key, uploads are gated by a
+ * bearer credential in an explicit header (never a cookie), and reads are
+ * anonymous by design. There is no session for a hostile origin to ride.
+ */
+const CORS = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "GET, POST, OPTIONS",
+  "access-control-allow-headers": "content-type, x-api-key",
+  "access-control-max-age": "86400",
+};
+
+function withCors(res: Response): Response {
+  const out = new Response(res.body, res);
+  for (const [k, v] of Object.entries(CORS)) out.headers.set(k, v);
+  return out;
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: CORS });
+    }
     try {
-      return await route(request, env);
+      return withCors(await route(request, env));
     } catch (e) {
-      if (e instanceof AppError) return e.toResponse();
+      if (e instanceof AppError) return withCors(e.toResponse());
       console.error("unhandled", e);
-      return json({ error: "internal server error", code: "internal" }, 500);
+      return withCors(
+        json({ error: "internal server error", code: "internal" }, 500),
+      );
     }
   },
 } satisfies ExportedHandler<Env>;

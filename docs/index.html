@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Run the Greentic cloud-update demo</title>
+<title>Change a running environment from a web page</title>
 <style>
   :root {
     --bg: #fbfbfa;
@@ -159,55 +159,108 @@
     margin-top: 72px; padding-top: 22px; border-top: 1px solid var(--rule);
     color: var(--faint); font-size: .88rem;
   }
+  /* the publishing console */
+  .console {
+    background: var(--panel); border: 1px solid var(--rule);
+    border-radius: var(--radius); padding: 20px; margin: 22px 0;
+  }
+  .console .row {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 11px 0; border-bottom: 1px solid var(--rule);
+  }
+  .console .label {
+    flex: 0 0 168px; color: var(--muted); font-size: .88rem; font-weight: 600;
+  }
+  .console .label .hint { font-weight: 400; font-size: .78rem; color: var(--faint); }
+  .console .val {
+    font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: var(--accent-soft); padding: 3px 8px; border-radius: 5px;
+    word-break: break-all; flex: 1 1 auto; min-width: 0;
+  }
+  .console input[type=text] {
+    flex: 1 1 240px; min-width: 0;
+    font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    padding: 8px 10px; border-radius: 6px;
+    border: 1px solid var(--rule); background: var(--bg); color: var(--ink);
+  }
+  .console input[type=text]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+  .btn {
+    font: 600 14px/1 inherit; padding: 11px 16px; border-radius: 7px;
+    border: 1px solid var(--rule); background: var(--bg); color: var(--ink);
+    cursor: pointer; display: inline-flex; align-items: center; gap: 8px;
+  }
+  .btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn.primary {
+    background: var(--accent); border-color: var(--accent); color: #fff; flex: 1 1 0;
+    justify-content: center; padding: 14px 18px; font-size: 15px;
+  }
+  .btn.primary:hover:not(:disabled) { filter: brightness(1.08); color: #fff; }
+  .btn .tag {
+    font: 500 11px/1 ui-monospace, Menlo, monospace; opacity: .8;
+    border: 1px solid currentColor; border-radius: 4px; padding: 3px 5px;
+  }
+  .actions { display: flex; gap: 12px; margin: 18px 0 0; flex-wrap: wrap; }
+
+  .log {
+    margin-top: 16px; padding: 12px 14px; border-radius: 7px;
+    background: var(--term-bg); color: var(--term-dim);
+    font: 12.5px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace;
+    max-height: 170px; overflow-y: auto;
+  }
+  .log .ok  { color: var(--term-grn); }
+  .log .err { color: #e5837a; }
 </style>
 </head>
 <body>
 <div class="wrap">
+
 <header>
   <div class="eyebrow">Greentic · cloud-update-demo</div>
-  <h1>Update a running environment from a server it doesn't trust</h1>
+  <h1>Change a running environment from a web page</h1>
   <p class="lede">
-    Start an environment on your machine. Publish a new version to a plan server
-    on the internet. The runtime finds it, verifies the signature against a key
-    it already holds, and moves traffic onto it &mdash; by itself, with no
-    restart, and without ever trusting the server.
+    Your environment runs on your machine. This page holds a signing key it
+    generated itself, signs an update plan with it, and uploads the bytes to a
+    plan server. Your runtime notices, checks the signature against a key it
+    already trusts, and switches version &mdash; on its own, with no restart.
   </p>
   <p class="lede" style="margin-top:14px">
-    Plain commands. No scripts to read, nothing hidden in a wrapper.
+    Press a button here. Watch the packs change there.
   </p>
 </header>
 
-<h2>How it fits together</h2>
+<h2>Why this is safe</h2>
 <p>
-  Everything runs on your machine. The only thing in the cloud is a
-  <strong>plan store</strong>: a dumb server that holds signed bytes and answers
-  GETs. It has no signing key, so it cannot invent an update &mdash; it can only
-  fail to hand one over, which your runtime survives.
+  A plan is only accepted if it carries a signature from a key in your
+  environment's <strong>trust root</strong> &mdash; a list of public keys on your
+  disk. So step one is: this page shows you its <em>public</em> key, and you add
+  it. Its <strong>private key never leaves your browser</strong>, and the plan
+  server never sees it. The server stores bytes and hands them out; it cannot
+  mint, alter, or forge a plan.
 </p>
 
 <div class="flow">
-<pre>   your operator key                       (minted on YOUR machine by `op env init`,
-        │  signs                           trusted by YOUR env, never uploaded)
-        ▼
-  ┌────────────────┐   sign + upload    ┌──────────────────────┐
-  │  op updates    │ ─────────────────▶ │   plan server        │
-  │  publish       │                    │   stores bytes.      │
-  └────────────────┘                    │   holds no keys.     │
-                                        └──────────────────────┘
-                                                   ▲
-                                    anonymous GET  │  (poll every 60s)
-                                                   │
-  ┌──────────────────────────────────────────────────────────┐
-  │  greentic-start  ── verify signature vs trust root       │
-  │                  ── snapshot → apply → roll back on fail │
-  └──────────────────────────────────────────────────────────┘
-             v1  (webchat)   ⇄   v2  (webchat + telegram)</pre>
+<pre>  ┌───────────────────────┐  sign in the browser   ┌──────────────────┐
+  │  this page            │ ─────────────────────▶ │  plan server     │
+  │  holds a private key  │      upload bytes      │  stores bytes.   │
+  │  you never send       │                        │  holds no keys.  │
+  └───────────────────────┘                        └──────────────────┘
+              │                                             ▲
+              │ you add its PUBLIC key                      │  poll every 60s
+              │ to the env's trust root                     │  (anonymous)
+              ▼                                             │
+  ┌──────────────────────────────────────────────────────────────────┐
+  │  greentic-start on YOUR machine                                  │
+  │    verify signature vs trust root → snapshot → apply → rollback  │
+  └──────────────────────────────────────────────────────────────────┘
+                 no packs  →  v1 (1 pack)  →  v2 (2 packs)</pre>
 </div>
 
-<h2>Install</h2>
+<h2>1. Prepare your machine</h2>
 <p>
-  Two binaries. Everything else &mdash; <code>bash</code>, <code>curl</code>,
-  <code>python3</code> &mdash; is already on every Linux and macOS box.
+  One binary to install; <code>bash</code>, <code>curl</code> and
+  <code>python3</code> you already have. Works on Linux and macOS.
 </p>
 
 <div class="term">
@@ -215,435 +268,201 @@
     <span class="dot" style="background:#e5695f"></span>
     <span class="dot" style="background:#e0b551"></span>
     <span class="dot" style="background:#67bf6b"></span>
-    <span class="term-title">install</span>
+    <span class="term-title">terminal — install &amp; fetch the two bundles</span>
     <button class="copy">copy</button>
   </div>
-<pre><span class="p">$</span> cargo binstall greentic-deployer@1.1.10 greentic-start@1.1.9</pre>
-</div>
+<pre><span class="p">$</span> cargo binstall greentic-deployer@1.1.10 greentic-start@1.1.9
 
-<h2>Set up a workspace</h2>
-<p>
-  A directory, the two bundles you'll switch between, and an isolated
-  <code>HOME</code> so none of this touches your real
-  <code>~/.greentic</code>.
-</p>
+<span class="p">$</span> export DEMO=~/greentic-demo
+<span class="p">$</span> mkdir -p $DEMO/bundles $DEMO/home &amp;&amp; cd $DEMO
 
-<div class="term">
-  <div class="term-bar">
-    <span class="dot" style="background:#e5695f"></span>
-    <span class="dot" style="background:#e0b551"></span>
-    <span class="dot" style="background:#67bf6b"></span>
-    <span class="term-title">setup</span>
-    <button class="copy">copy</button>
-  </div>
-<pre><span class="p">$</span> export DEMO=~/greentic-demo
-<span class="p">$</span> mkdir -p $DEMO/bundles $DEMO/manifests $DEMO/home &amp;&amp; cd $DEMO
-
-<span class="c"># the content: v1 = webchat, v2 = webchat + telegram</span>
 <span class="p">$</span> REL=https://github.com/greenticai/greentic-cloud-update-demo/releases/download/content-v1
-<span class="p">$</span> curl -fsSL -o bundles/v1.gtbundle        $REL/v1.gtbundle
-<span class="p">$</span> curl -fsSL -o bundles/v1.gtbundle.sha256 $REL/v1.gtbundle.sha256
-<span class="p">$</span> curl -fsSL -o bundles/v2.gtbundle        $REL/v2.gtbundle
-<span class="p">$</span> curl -fsSL -o bundles/v2.gtbundle.sha256 $REL/v2.gtbundle.sha256
+<span class="p">$</span> curl -fsSL -o bundles/v1.gtbundle $REL/v1.gtbundle
+<span class="p">$</span> curl -fsSL -o bundles/v2.gtbundle $REL/v2.gtbundle
 
-<span class="c"># every command below runs against this HOME, never your real one</span>
-<span class="p">$</span> export HOME=$DEMO/home</pre>
+<span class="c"># the page needs this absolute path — copy what it prints</span>
+<span class="p">$</span> echo $DEMO/bundles</pre>
 </div>
 
 <div class="warn">
   <p><strong>Use a throwaway terminal.</strong></p>
   <p>
-    <code>export HOME=…</code> repoints <em>this shell</em>. That is what keeps
-    the demo isolated &mdash; but every other command you run in this terminal
-    also sees the fake home. Open a fresh terminal when you're done, or just
-    close it.
+    The next step sets <code>HOME</code> to <code>$DEMO/home</code> so nothing
+    touches your real <code>~/.greentic</code>. That also means every other
+    command in that terminal sees the fake home. Close it when you're done.
   </p>
 </div>
 
-<h2>The six steps</h2>
+<h2>2. The console</h2>
+<p class="sub">
+  This runs entirely in your browser. The key is generated here and kept in this
+  browser's local storage &mdash; nothing is uploaded but signed plans.
+</p>
 
-<ol class="steps">
-
-<li>
-  <h3>Set the token</h3>
-  <p class="sub">
-    Claim a private namespace on the plan server. You get back an unguessable
-    environment id, an <strong>upload</strong> credential scoped to it, and the
-    endpoint your runtime will poll. Reads need no credential at all.
-  </p>
-  <div class="term">
-    <div class="term-bar">
-      <span class="dot" style="background:#e5695f"></span>
-      <span class="dot" style="background:#e0b551"></span>
-      <span class="dot" style="background:#67bf6b"></span>
-      <span class="term-title">terminal 1</span>
-      <button class="copy">copy</button>
-    </div>
-<pre><span class="p">$</span> SERVER=https://greentic-plan-server.vladik-dobrik.workers.dev
-<span class="p">$</span> curl -fsS -X POST $SERVER/v1/demo/session -o $DEMO/session.json
-
-<span class="p">$</span> export GREENTIC_PLAN_UPLOAD_TOKEN=$(python3 -c "import json;print(json.load(open('$DEMO/session.json'))['upload_token'])")
-<span class="p">$</span> export PLAN_ENDPOINT=$(python3 -c "import json;print(json.load(open('$DEMO/session.json'))['plan_endpoint'])")
-
-<span class="p">$</span> echo $PLAN_ENDPOINT
-<span class="o">https://greentic-plan-server.vladik-dobrik.workers.dev/v1/environments/demo-20f4d20e75e231da/plan</span></pre>
+<div class="console" id="console">
+  <div class="row">
+    <span class="label">Page signing key</span>
+    <code class="val" id="keyid">generating…</code>
   </div>
-  <p class="sub">
-    <code>GREENTIC_PLAN_UPLOAD_TOKEN</code> is the one variable
-    <code>op updates publish</code> reads. Passing it on the command line would
-    leave it in your shell history and in <code>ps</code>.
-  </p>
-
-  <p style="margin-top:22px">Now write the two manifests. This is the only place the endpoint appears:</p>
-  <div class="term">
-    <div class="term-bar">
-      <span class="dot" style="background:#e5695f"></span>
-      <span class="dot" style="background:#e0b551"></span>
-      <span class="dot" style="background:#67bf6b"></span>
-      <span class="term-title">terminal 1</span>
-      <button class="copy">copy</button>
-    </div>
-<pre><span class="p">$</span> V1SHA=$(awk '{print $1}' bundles/v1.gtbundle.sha256)
-<span class="p">$</span> V2SHA=$(awk '{print $1}' bundles/v2.gtbundle.sha256)
-
-<span class="p">$</span> cat &gt; manifests/v1.json &lt;&lt;EOF
-{
-  "schema": "greentic.env-manifest.v1",
-  "environment": { "id": "local" },
-  "updates": {
-    "plan_endpoint": "$PLAN_ENDPOINT",
-    "on_notify": "apply",
-    "poll_interval_secs": 60
-  },
-  "bundles": [
-    { "bundle_id": "updatedemo",
-      "bundle_path": "$DEMO/bundles/v1.gtbundle",
-      "bundle_digest": "sha256:$V1SHA" }
-  ]
-}
-EOF
-
-<span class="p">$</span> cat &gt; manifests/v2.json &lt;&lt;EOF
-{
-  "schema": "greentic.env-manifest.v1",
-  "environment": { "id": "local" },
-  "bundles": [
-    { "bundle_id": "updatedemo",
-      "bundle_path": "$DEMO/bundles/v2.gtbundle",
-      "bundle_digest": "sha256:$V2SHA" }
-  ]
-}
-EOF</pre>
+  <div class="row">
+    <span class="label">Server namespace</span>
+    <code class="val" id="ns">none yet</code>
+    <button class="btn ghost" id="btn-ns">Claim a namespace</button>
   </div>
-  <p class="sub">
-    Only <code>v1.json</code> carries an <code>updates</code> block. That block
-    <em>is</em> the subscription &mdash; an environment that never declares one
-    fetches nothing, ever.
-  </p>
-</li>
-
-<li>
-  <h3>Start the env</h3>
-  <p class="sub">
-    <code>env init</code> mints <em>your</em> operator key and seeds its public
-    half into the environment's trust root. <code>env apply</code> deploys v1 and
-    &mdash; because the manifest declares an <code>updates</code> block &mdash;
-    subscribes to the channel. Then the runtime comes up and starts polling.
-  </p>
-  <div class="term">
-    <div class="term-bar">
-      <span class="dot" style="background:#e5695f"></span>
-      <span class="dot" style="background:#e0b551"></span>
-      <span class="dot" style="background:#67bf6b"></span>
-      <span class="term-title">terminal 1 &mdash; leave the last one running</span>
-      <button class="copy">copy</button>
-    </div>
-<pre><span class="p">$</span> greentic-deployer op env init
-<span class="p">$</span> greentic-deployer op env apply --answers $DEMO/manifests/v1.json
-
-<span class="p">$</span> greentic-start start --env local --no-browser</pre>
-  </div>
-  <p class="sub">
-    <code>greentic-start</code> runs in the foreground. Its log <em>is</em> the
-    demo &mdash; keep this terminal visible and run the rest in a second one
-    (re-exporting <code>DEMO</code>, <code>HOME</code>,
-    <code>GREENTIC_PLAN_UPLOAD_TOKEN</code> and <code>PLAN_ENDPOINT</code> there).
-  </p>
-</li>
-
-<li>
-  <h3>Publish v2 to the server</h3>
-  <p class="sub">
-    This reads the next sequence number off the server, signs the manifest
-    <em>in memory</em> with your operator key, and uploads the bytes. The private
-    key never leaves your machine, and the server never sees it.
-  </p>
-  <div class="term">
-    <div class="term-bar">
-      <span class="dot" style="background:#e5695f"></span>
-      <span class="dot" style="background:#e0b551"></span>
-      <span class="dot" style="background:#67bf6b"></span>
-      <span class="term-title">terminal 2</span>
-      <button class="copy">copy</button>
-    </div>
-<pre><span class="p">$</span> greentic-deployer op updates publish local --target-file $DEMO/manifests/v2.json</pre>
-  </div>
-  <p class="sub">
-    Now <strong>do nothing</strong>. Nobody pushed anything at the runtime. Within
-    one poll interval (&le;60s) it fetches the plan, verifies the signature
-    against its own trust root, snapshots, applies, and moves traffic &mdash; and
-    terminal 1 says so:
-  </p>
-  <div class="term">
-    <div class="term-bar">
-      <span class="dot" style="background:#e5695f"></span>
-      <span class="dot" style="background:#e0b551"></span>
-      <span class="dot" style="background:#67bf6b"></span>
-      <span class="term-title">terminal 1 &mdash; the runtime's own log</span>
-    </div>
-<pre><span class="y">update-notify: applied update plan `01KXCW2Q…` to env `local`</span>
-<span class="y">update-poll: env `local` plan sequence 1 -&gt; 200 (applied)</span>
-<span class="y">runtime-config reloaded: 1 → 1 deployment(s), 1 → 1 revision(s)</span></pre>
-  </div>
-</li>
-
-<li>
-  <h3>Check the config</h3>
-  <p class="sub">
-    What is the environment <em>actually</em> serving right now? The pack list is
-    the giveaway.
-  </p>
-  <div class="term">
-    <div class="term-bar">
-      <span class="dot" style="background:#e5695f"></span>
-      <span class="dot" style="background:#e0b551"></span>
-      <span class="dot" style="background:#67bf6b"></span>
-      <span class="term-title">terminal 2 &mdash; check config</span>
-      <button class="copy">copy</button>
-    </div>
-<pre><span class="p">$</span> greentic-deployer op env show local | python3 -c '
-import json, sys
-e = json.load(sys.stdin)["result"]["environment"]
-live = {x["revision_id"] for s in e["traffic_splits"] for x in s["entries"] if x["weight_bps"] > 0}
-for r in e["revisions"]:
-    if r["revision_id"] in live:
-        print("sequence", r["sequence"], r["bundle_digest"][:23])
-        print("packs   ", ", ".join(p["pack_id"] for p in r["pack_list"]))'
-
-<span class="o">sequence 2 sha256:feb45fafda62abe2</span>
-<span class="o">packs    app-webchat-bot, messaging-telegram</span>   <span class="c">← v2 is live</span></pre>
+  <div class="row">
+    <span class="label"><label for="bundles">Bundles directory<br><span class="hint">the path <code>echo $DEMO/bundles</code> printed</span></label></span>
+    <input id="bundles" type="text" spellcheck="false" placeholder="/home/you/greentic-demo/bundles">
   </div>
 
-  <p>And what the <em>server</em> is holding, plus the channel you subscribed to:</p>
-  <div class="term">
-    <div class="term-bar">
-      <span class="dot" style="background:#e5695f"></span>
-      <span class="dot" style="background:#e0b551"></span>
-      <span class="dot" style="background:#67bf6b"></span>
-      <span class="term-title">terminal 2</span>
-      <button class="copy">copy</button>
-    </div>
-<pre><span class="p">$</span> curl -s $PLAN_ENDPOINT/meta
-<span class="o">{"sequence":1,"plan_sha256":"5924ba178c47b29e…","uploaded_at":"2026-07-13T05:24:45Z"}</span>
-
-<span class="p">$</span> greentic-deployer op updates config-show local
-<span class="c">    enabled=true  on_update=apply  poll_interval_secs=60</span></pre>
+  <div class="actions">
+    <button class="btn primary" id="btn-v1" disabled>Publish&nbsp;v1 <span class="tag">1 pack</span></button>
+    <button class="btn primary" id="btn-v2" disabled>Publish&nbsp;v2 <span class="tag">2 packs</span></button>
   </div>
-</li>
+  <div class="log" id="log">Claim a namespace to begin.</div>
+</div>
 
-<li>
-  <h3>Publish v1 &mdash; go back</h3>
-  <p class="sub">
-    Same command, the other manifest. Sixty seconds later the environment is
-    webchat-only again, live, with no restart.
-  </p>
-  <div class="term">
-    <div class="term-bar">
-      <span class="dot" style="background:#e5695f"></span>
-      <span class="dot" style="background:#e0b551"></span>
-      <span class="dot" style="background:#67bf6b"></span>
-      <span class="term-title">terminal 2</span>
-      <button class="copy">copy</button>
-    </div>
-<pre><span class="p">$</span> greentic-deployer op updates publish local --target-file $DEMO/manifests/v1.json</pre>
-  </div>
+<h2>3. Start a clean environment, pointed at the server</h2>
+<p>
+  Once you've claimed a namespace above, this block is filled in with
+  <strong>your</strong> endpoint and <strong>your</strong> page key. It creates an
+  environment with <em>no packs at all</em>, subscribes it to the server, and
+  tells it to trust this page.
+</p>
 
-  <div class="note">
-    <p><strong>Going back to v1 is not a downgrade.</strong></p>
-    <p>
-      Anti-rollback protects the plan <code>sequence</code>, which only ever grows
-      &mdash; 1, 2, 3, 4. The <em>content</em> a plan points at is free to move in
-      either direction. So you can flip v1&nbsp;⇄&nbsp;v2 as often as you like,
-      while replaying an <em>old signed plan</em> stays impossible.
-    </p>
-    <p style="margin-top:10px">
-      <code>v1.json</code> also carries an <code>updates</code> block, and
-      <code>publish</code> <strong>strips it before signing</strong>. A signed plan
-      that could re-point the channel it arrived on would be a self-perpetuating
-      takeover primitive, so it is not allowed to exist.
-    </p>
-  </div>
-</li>
-
-<li>
-  <h3>Check the config again</h3>
-  <p class="sub">Same command as step 4.</p>
-  <div class="term">
-    <div class="term-bar">
-      <span class="dot" style="background:#e5695f"></span>
-      <span class="dot" style="background:#e0b551"></span>
-      <span class="dot" style="background:#67bf6b"></span>
-      <span class="term-title">terminal 2 &mdash; check config</span>
-      <button class="copy">copy</button>
-    </div>
-<pre><span class="p">$</span> greentic-deployer op env show local | python3 -c '
-import json, sys
-e = json.load(sys.stdin)["result"]["environment"]
-live = {x["revision_id"] for s in e["traffic_splits"] for x in s["entries"] if x["weight_bps"] > 0}
-for r in e["revisions"]:
-    if r["revision_id"] in live:
-        print("sequence", r["sequence"], r["bundle_digest"][:23])
-        print("packs   ", ", ".join(p["pack_id"] for p in r["pack_list"]))'
-
-<span class="o">sequence 3 sha256:6e6f24f5c3f12c41</span>
-<span class="o">packs    app-webchat-bot</span>                        <span class="c">← back on v1</span></pre>
-  </div>
-  <p class="sub">
-    The revision sequence went <strong>1 → 2 → 3</strong> while the content went
-    <strong>v1 → v2 → v1</strong>. Repeat steps 3&ndash;6 as long as you like.
-  </p>
-</li>
-
-</ol>
-
-<h2>Clean up</h2>
 <div class="term">
   <div class="term-bar">
     <span class="dot" style="background:#e5695f"></span>
     <span class="dot" style="background:#e0b551"></span>
     <span class="dot" style="background:#67bf6b"></span>
-    <span class="term-title">cleanup</span>
+    <span class="term-title">terminal — generated for you</span>
     <button class="copy">copy</button>
   </div>
-<pre><span class="c"># Ctrl-C the runtime in terminal 1, then close the terminals</span>
-<span class="c"># (they hold the fake HOME) and delete the directory:</span>
-<span class="p">$</span> rm -rf ~/greentic-demo</pre>
+<pre id="setup"><span class="c"># Claim a namespace in the console above and this fills itself in.</span></pre>
 </div>
 
-<h2>What this actually proves</h2>
+<h2>4. Check the environment &mdash; it is empty</h2>
+<div class="term">
+  <div class="term-bar">
+    <span class="dot" style="background:#e5695f"></span>
+    <span class="dot" style="background:#e0b551"></span>
+    <span class="dot" style="background:#67bf6b"></span>
+    <span class="term-title">terminal 2 — check config</span>
+    <button class="copy">copy</button>
+  </div>
+<pre><span class="p">$</span> greentic-deployer op env show local | python3 -c '
+import json, sys
+e = json.load(sys.stdin)["result"]["environment"]
+live = {x["revision_id"] for s in e["traffic_splits"] for x in s["entries"] if x["weight_bps"] > 0}
+rows = [r for r in e["revisions"] if r["revision_id"] in live]
+print("packs:", ", ".join(p["pack_id"] for r in rows for p in r["pack_list"]) or "(none)")'
+
+<span class="o">packs: (none)</span>                                <span class="c">← nothing deployed yet</span></pre>
+</div>
+<p class="sub">
+  Remember to re-export <code>DEMO</code> and <code>HOME</code> in this second
+  terminal, or it will look at your real home.
+</p>
+
+<h2>5. Press “Publish v1”, then check again</h2>
+<p>
+  Go back to <a href="#console">the console</a> and press <strong>Publish
+  v1</strong>. Within 60 seconds the runtime picks it up. Run the same check:
+</p>
+<div class="term">
+  <div class="term-bar">
+    <span class="dot" style="background:#e5695f"></span>
+    <span class="dot" style="background:#e0b551"></span>
+    <span class="dot" style="background:#67bf6b"></span>
+    <span class="term-title">terminal 2</span>
+  </div>
+<pre><span class="o">packs: app-webchat-bot</span>                          <span class="c">← 1 pack. It came from the page.</span></pre>
+</div>
+
+<h2>6. Press “Publish v2”, and check once more</h2>
+<div class="term">
+  <div class="term-bar">
+    <span class="dot" style="background:#e5695f"></span>
+    <span class="dot" style="background:#e0b551"></span>
+    <span class="dot" style="background:#67bf6b"></span>
+    <span class="term-title">terminal 2</span>
+  </div>
+<pre><span class="o">packs: app-webchat-bot, messaging-telegram</span>      <span class="c">← 2 packs</span></pre>
+</div>
+<p>
+  Now press <strong>Publish v1</strong> again. It goes back to one pack. Flip
+  between them as often as you like.
+</p>
+
+<div class="note">
+  <p><strong>Going back to v1 is not a downgrade.</strong></p>
+  <p>
+    Anti-rollback protects the plan <code>sequence</code>, which only ever grows
+    &mdash; 1, 2, 3, 4. The <em>content</em> a plan points at is free to move in
+    either direction. Replaying an <em>old signed plan</em> stays impossible.
+  </p>
+</div>
+
+<h2>What this proves</h2>
 <div class="scroll">
 <table>
   <tr><th>Claim</th><th>What enforces it</th></tr>
   <tr>
-    <td>The server can't forge an update</td>
-    <td>Plans are signed by your operator key, which never left your machine. The server stores bytes and holds no key; a plan it invented would fail verification against your trust root.</td>
+    <td>The page can't be impersonated</td>
+    <td>Plans are Ed25519-signed in the browser. The runtime accepts only signatures from a key in its own <code>trust-root.json</code> — the one you added by hand.</td>
   </tr>
   <tr>
-    <td>An attacker on the wire can't either</td>
-    <td>Plan reads are anonymous and unauthenticated <em>on purpose</em>. The signature is the trust anchor &mdash; not TLS, not the origin.</td>
+    <td>The server can't forge an update</td>
+    <td>It stores bytes and holds no key. A plan it invented would fail verification on your machine.</td>
+  </tr>
+  <tr>
+    <td>The network can't either</td>
+    <td>Plan reads are anonymous and unauthenticated <em>on purpose</em>. The signature is the trust anchor — not TLS, not the origin.</td>
   </tr>
   <tr>
     <td>You can't be replayed an old version</td>
-    <td>Every plan carries a monotonic <code>sequence</code>, and the anti-rollback check reads it from the <strong>signed plan</strong> &mdash; not from anything the server claims.</td>
-  </tr>
-  <tr>
-    <td>Two publishers can't fork a channel</td>
-    <td>The store enforces strict monotonicity inside a Durable Object, so the read-modify-write is serialized. The loser of a race gets <code>409</code>, never a silent fork.</td>
+    <td>Each plan carries a monotonic <code>sequence</code>, read from the <strong>signed plan</strong> rather than from anything the server says.</td>
   </tr>
   <tr>
     <td>Nothing is pushed at your runtime</td>
-    <td>It polls. Discovery is not authority: no <code>updates</code> block, no fetching &mdash; ever.</td>
+    <td>It polls. An environment with no <code>updates</code> block fetches nothing, ever.</td>
   </tr>
   <tr>
     <td>A plan can't hijack the channel</td>
-    <td><code>publish</code> strips <code>updates</code> from a plan target before signing, and the apply path rejects one that smuggles it in.</td>
-  </tr>
-  <tr>
-    <td>A bad update rolls back</td>
-    <td>Apply runs under a pre-apply snapshot, with post-apply verification and automatic rollback.</td>
+    <td>The <code>updates</code> block is stripped from a plan target before signing — here in the page, and in the CLI.</td>
   </tr>
 </table>
 </div>
 
 <h2>If something goes wrong</h2>
 
-<h3>“port 8080 is already in use”</h3>
+<h3>The runtime logs “no trusted signature”</h3>
 <p>
-  The runtime serves on the environment's listen address, and 8080 is the
-  default. It is a property of the <em>environment</em>, not a flag on
-  <code>greentic-start</code> &mdash; so the fix is to free the port. Find what
-  holds it and stop that:
-</p>
-<div class="term">
-  <div class="term-bar">
-    <span class="dot" style="background:#e5695f"></span><span class="dot" style="background:#e0b551"></span><span class="dot" style="background:#67bf6b"></span>
-    <span class="term-title">bash — Linux / macOS</span>
-    <button class="copy">copy</button>
-  </div>
-<pre><span class="p">$</span> lsof -nP -iTCP:8080 -sTCP:LISTEN</pre>
-</div>
-<p class="sub">
-  A stray <code>greentic-start</code> from an earlier run is the usual culprit.
-  Stop it with <code>kill &lt;pid&gt;</code> and start again.
+  The page's key is not in your trust root. That happens if you cleared browser
+  storage (the page then generates a <em>new</em> key) or ran
+  <code>op env init</code> after adding it. Re-run the trust-root step in
+  section&nbsp;3 with the <code>key_id</code> currently shown in the console.
 </p>
 
-<h3>Nothing happens after publish</h3>
+<h3>Nothing happens after pressing a button</h3>
 <p>
-  Give it a full minute &mdash; 60s is the poll floor, and the runtime only
-  checks on its own schedule. Then confirm the channel is actually on:
-  <code>greentic-deployer op updates config-show local</code> should say
-  <code>enabled=true</code>. If it doesn't, <code>env apply</code> was run with a
-  manifest that had no <code>updates</code> block.
+  Give it a full minute &mdash; 60s is the poll floor. Then check the console log
+  above: a successful publish prints the sequence number the server accepted. If
+  the button reports an error, it is the server rejecting the upload, not your
+  runtime.
 </p>
 
-<h3>Your namespace expired</h3>
+<h3>“bundle not found” in the runtime log</h3>
 <p>
-  Namespaces on the shared server live 24 hours. Redo step 1 for a fresh one,
-  rewrite the manifests (the endpoint changes), and re-run
-  <code>op env apply --answers $DEMO/manifests/v1.json</code> so the environment
-  picks up the new channel.
+  The <strong>bundles directory</strong> you typed into the console is baked into
+  the signed plan as an absolute path. It must be the real path on the machine
+  running <code>greentic-start</code>. Fix the field and publish again.
 </p>
 
-<div class="warn">
-  <p><strong>These are content-only plans, so your binaries are safe.</strong></p>
-  <p>
-    A plan can also carry a <em>binary</em> artifact, and the runtime that applies
-    one replaces its own executable &mdash; which, here, would be the
-    <code>greentic-start</code> on your <code>PATH</code>. Nothing above does
-    that. If you go on to publish a <code>--binary</code> plan, run a
-    <em>copy</em> of the runtime from somewhere else first.
-  </p>
-</div>
-
-<div class="warn">
-  <p><strong>Why is the upload endpoint open to anyone?</strong></p>
-  <p>
-    Because it buys an attacker nothing. Guess someone's namespace and the worst
-    you can do is <em>deny</em> them an update: their runtime rejects any plan not
-    signed by a key its trust root already carries. Denial, not compromise
-    &mdash; which is exactly the property the whole design exists to show, so it
-    would be dishonest to hide it behind a password.
-  </p>
-</div>
-
-<h2>Run your own plan server</h2>
+<h3>Your browser has no Ed25519</h3>
 <p>
-  The server is a small Cloudflare Worker; its source is in <code>server/</code>
-  in the repo. Deploy your own and point step 1 at it &mdash; nothing else about
-  the run changes.
+  The console needs WebCrypto Ed25519 (Chrome 137+, Firefox 130+, Safari 17+).
+  On an older browser the buttons stay disabled and the key line says so.
 </p>
-<div class="term">
-  <div class="term-bar">
-    <span class="dot" style="background:#e5695f"></span><span class="dot" style="background:#e0b551"></span><span class="dot" style="background:#67bf6b"></span>
-    <span class="term-title">bash</span>
-    <button class="copy">copy</button>
-  </div>
-<pre><span class="p">$</span> git clone https://github.com/greenticai/greentic-cloud-update-demo
-<span class="p">$</span> cd greentic-cloud-update-demo/server &amp;&amp; ./deploy.sh
-
-<span class="c"># then, in step 1:</span>
-<span class="p">$</span> SERVER=https://your-worker.workers.dev</pre>
-</div>
 
 <footer>
   Source, and the plan server it talks to:
@@ -654,6 +473,143 @@ for r in e["revisions"]:
 
 </div>
 
+<script type="module">
+import { loadOrCreateKey, publish, manifestFor, currentSequence } from "./publisher.js";
+
+const SERVER = "https://greentic-plan-server.vladik-dobrik.workers.dev";
+// Digests of the published release assets. The plan pins these; the runtime
+// refuses a bundle whose bytes do not match.
+const DIGEST = {
+  v1: "6e6f24f5c3f12c41eaa46d92a54632a131c65b0b7d591c9759a18792700bbb8f",
+  v2: "feb45fafda62abe23b4c479d25120f82e6450745d4984d6ca105886cffecbe83",
+};
+
+const $ = (id) => document.getElementById(id);
+const log = (msg, cls = "") => {
+  const line = document.createElement("div");
+  if (cls) line.className = cls;
+  line.textContent = msg;
+  $("log").prepend(line);
+};
+
+let key = null;
+let session = JSON.parse(localStorage.getItem("greentic.demo.session") || "null");
+
+$("bundles").value = localStorage.getItem("greentic.demo.bundles") || "";
+$("bundles").addEventListener("input", (e) => {
+  localStorage.setItem("greentic.demo.bundles", e.target.value.trim());
+  refresh();
+});
+
+function esc(s) {
+  return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+}
+
+// Fill section 3 with the user's real endpoint and the page's real public key.
+function refresh() {
+  $("ns").textContent = session ? session.env_id : "none yet";
+  const ready = !!(key && session);
+  $("btn-v1").disabled = !ready;
+  $("btn-v2").disabled = !ready;
+
+  if (!ready) return;
+  const pem = key.publicKeyPem.trim().split("\n").join("\\n") + "\\n";
+  $("setup").innerHTML = `<span class="p">$</span> export DEMO=~/greentic-demo
+<span class="p">$</span> export HOME=$DEMO/home
+<span class="p">$</span> cd $DEMO
+
+<span class="c"># an environment with NO packs, subscribed to your namespace</span>
+<span class="p">$</span> cat &gt; bootstrap.json &lt;&lt;'EOF'
+{
+  "schema": "greentic.env-manifest.v1",
+  "environment": { "id": "local" },
+  "updates": {
+    "plan_endpoint": "${esc(session.plan_endpoint)}",
+    "on_notify": "apply",
+    "poll_interval_secs": 60
+  },
+  "bundles": []
+}
+EOF
+
+<span class="p">$</span> greentic-deployer op env init
+<span class="p">$</span> greentic-deployer op env apply --answers bootstrap.json
+
+<span class="c"># trust THIS PAGE's public key — without this, nothing it signs is accepted</span>
+<span class="p">$</span> python3 - &lt;&lt;'EOF'
+import json, os, pathlib
+p = pathlib.Path(os.environ["HOME"]) / ".greentic/environments/local/trust-root.json"
+tr = json.loads(p.read_text())
+tr["keys"] = [k for k in tr["keys"] if k["key_id"] != "${esc(key.keyId)}"]
+tr["keys"].append({
+    "key_id": "${esc(key.keyId)}",
+    "public_key_pem": "${pem}",
+})
+p.write_text(json.dumps(tr, indent=2))
+print("trusted:", [k["key_id"] for k in tr["keys"]])
+EOF
+
+<span class="c"># serve it — leave this running</span>
+<span class="p">$</span> greentic-start start --env local --no-browser`;
+}
+
+$("btn-ns").addEventListener("click", async () => {
+  $("btn-ns").disabled = true;
+  try {
+    const res = await fetch(`${SERVER}/v1/demo/session`, { method: "POST" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    session = await res.json();
+    localStorage.setItem("greentic.demo.session", JSON.stringify(session));
+    log(`namespace ${session.env_id} — expires in 24h`, "ok");
+    refresh();
+  } catch (e) {
+    log(`could not reach the plan server: ${e.message}`, "err");
+  } finally {
+    $("btn-ns").disabled = false;
+  }
+});
+
+async function doPublish(version) {
+  const dir = $("bundles").value.trim();
+  if (!dir.startsWith("/")) {
+    log("enter the absolute bundles directory first (step 1 printed it)", "err");
+    return;
+  }
+  const btn = $(`btn-${version}`);
+  btn.disabled = true;
+  try {
+    const target = manifestFor(version, dir, DIGEST[version]);
+    const { sequence } = await publish({
+      key,
+      planEndpoint: session.plan_endpoint,
+      uploadToken: session.upload_token,
+      envId: "local",
+      target,
+    });
+    log(`published ${version} — sequence ${sequence}. Your runtime picks it up within 60s.`, "ok");
+  } catch (e) {
+    log(`publish failed: ${e.message}`, "err");
+  } finally {
+    btn.disabled = false;
+    refresh();
+  }
+}
+$("btn-v1").addEventListener("click", () => doPublish("v1"));
+$("btn-v2").addEventListener("click", () => doPublish("v2"));
+
+(async () => {
+  try {
+    key = await loadOrCreateKey();
+    $("keyid").textContent = key.keyId;
+    if (session) log(`namespace ${session.env_id} (restored)`);
+    refresh();
+  } catch (e) {
+    $("keyid").textContent = "this browser has no WebCrypto Ed25519";
+    log(`cannot sign in this browser: ${e.message}`, "err");
+  }
+})();
+</script>
+
 <script>
   document.querySelectorAll(".copy").forEach(function (btn) {
     btn.addEventListener("click", function () {
@@ -662,7 +618,7 @@ for r in e["revisions"]:
       var out = [], inHeredoc = false;
       lines.forEach(function (l) {
         var t = l.trim();
-        if (inHeredoc) {                       // keep heredoc bodies verbatim
+        if (inHeredoc) {
           out.push(l);
           if (t === "EOF") inHeredoc = false;
           return;
@@ -670,7 +626,7 @@ for r in e["revisions"]:
         if (t.indexOf("$ ") === 0 || t === "$") {
           var cmd = l.replace(/^\s*\$\s?/, "");
           out.push(cmd);
-          if (/<<\s*EOF\s*$/.test(cmd)) inHeredoc = true;
+          if (/<<\s*'?EOF'?\s*$/.test(cmd)) inHeredoc = true;
           return;
         }
         if (t.indexOf("#") === 0) out.push(l.replace(/^\s+/, ""));
@@ -681,10 +637,7 @@ for r in e["revisions"]:
         var was = btn.textContent;
         btn.textContent = "copied";
         btn.classList.add("done");
-        setTimeout(function () {
-          btn.textContent = was;
-          btn.classList.remove("done");
-        }, 1400);
+        setTimeout(function () { btn.textContent = was; btn.classList.remove("done"); }, 1400);
       });
     });
   });

@@ -252,6 +252,41 @@ describe("monotonic sequence", () => {
   });
 });
 
+describe("CORS — the browser publishing console posts cross-origin", () => {
+  it("answers the preflight for a credentialled upload", async () => {
+    const res = await SELF.fetch(`${BASE}/v1/environments/demo-x/plan`, {
+      method: "OPTIONS",
+      headers: {
+        origin: "https://cloud-update-demo.pages.dev",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "x-api-key, content-type",
+      },
+    });
+    expect(res.status).toBe(204);
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+    expect(res.headers.get("access-control-allow-methods")).toContain("POST");
+    // Without x-api-key allowed, the browser refuses to send the credential.
+    expect(res.headers.get("access-control-allow-headers")).toContain(
+      "x-api-key",
+    );
+  });
+
+  it("puts the origin header on real responses too, including errors", async () => {
+    const ok = await SELF.fetch(`${BASE}/healthz`);
+    expect(ok.headers.get("access-control-allow-origin")).toBe("*");
+
+    const { env_id } = await newSession();
+    const denied = await upload(env_id, "wrong", {
+      plan: bytes("p"),
+      sig: bytes("s"),
+      sequence: 1,
+    });
+    expect(denied.status).toBe(401);
+    // A 401 with no CORS header reaches JS as an opaque network error.
+    expect(denied.headers.get("access-control-allow-origin")).toBe("*");
+  });
+});
+
 describe("shared-instance hardening", () => {
   it("rejects an id with path-traversal characters", async () => {
     const res = await SELF.fetch(
