@@ -259,8 +259,9 @@
 
 <h2>1. Prepare your machine</h2>
 <p>
-  One command installs the whole pinned toolchain. <code>bash</code>,
-  <code>curl</code> and <code>python3</code> you already have. Linux and macOS.
+  One command installs the whole pinned toolchain. Everything else is
+  <code>bash</code>, <code>curl</code> and <code>grep</code>. No Python, no
+  <code>jq</code>, no Docker. Linux and macOS.
 </p>
 
 <div class="term">
@@ -359,14 +360,20 @@
     <span class="term-title">terminal 2 — check config</span>
     <button class="copy">copy</button>
   </div>
-<pre><span class="p">$</span> greentic-deployer op env show local | python3 -c '
-import json, sys
-e = json.load(sys.stdin)["result"]["environment"]
-live = {x["revision_id"] for s in e["traffic_splits"] for x in s["entries"] if x["weight_bps"] > 0}
-rows = [r for r in e["revisions"] if r["revision_id"] in live]
-print("packs:", ", ".join(p["pack_id"] for r in rows for p in r["pack_list"]) or "(none)")'
+<pre><span class="p">$</span> greentic-deployer op env show local | grep -o '"bundle_digest":"sha256:[0-9a-f]*"' | tail -1
 
-<span class="o">packs: (none)</span>                                <span class="c">← nothing deployed yet</span></pre>
+<span class="c">(no output — nothing is deployed yet)</span></pre>
+</div>
+<p class="sub">
+  That prints the digest of the revision currently taking traffic. Two values
+  matter, and the page publishes only these:
+</p>
+<div class="scroll">
+<table>
+  <tr><th>Digest</th><th>Version</th></tr>
+  <tr><td><code>sha256:6e6f24f5…</code></td><td><strong>v1</strong> — <code>app-webchat-bot</code> &nbsp;(1 pack)</td></tr>
+  <tr><td><code>sha256:feb45faf…</code></td><td><strong>v2</strong> — <code>app-webchat-bot</code>, <code>messaging-telegram</code> &nbsp;(2 packs)</td></tr>
+</table>
 </div>
 <p class="sub">
   Remember to re-export <code>DEMO</code> and <code>HOME</code> in this second
@@ -385,7 +392,9 @@ print("packs:", ", ".join(p["pack_id"] for r in rows for p in r["pack_list"]) or
     <span class="dot" style="background:#67bf6b"></span>
     <span class="term-title">terminal 2</span>
   </div>
-<pre><span class="o">packs: app-webchat-bot</span>                          <span class="c">← 1 pack. It came from the page.</span></pre>
+<pre><span class="p">$</span> greentic-deployer op env show local | grep -o '"bundle_digest":"sha256:[0-9a-f]*"' | tail -1
+
+<span class="o">"bundle_digest":"sha256:6e6f24f5c3f12c41…"</span>   <span class="c">← v1. 1 pack. It came from the page.</span></pre>
 </div>
 
 <h2>6. Press “Publish v2”, and check once more</h2>
@@ -396,7 +405,9 @@ print("packs:", ", ".join(p["pack_id"] for r in rows for p in r["pack_list"]) or
     <span class="dot" style="background:#67bf6b"></span>
     <span class="term-title">terminal 2</span>
   </div>
-<pre><span class="o">packs: app-webchat-bot, messaging-telegram</span>      <span class="c">← 2 packs</span></pre>
+<pre><span class="p">$</span> greentic-deployer op env show local | grep -o '"bundle_digest":"sha256:[0-9a-f]*"' | tail -1
+
+<span class="o">"bundle_digest":"sha256:feb45fafda62abe2…"</span>   <span class="c">← v2. 2 packs.</span></pre>
 </div>
 <p>
   Now press <strong>Publish v1</strong> again. It goes back to one pack. Flip
@@ -447,10 +458,22 @@ print("packs:", ", ".join(p["pack_id"] for r in rows for p in r["pack_list"]) or
 
 <h3>The runtime logs “no trusted signature”</h3>
 <p>
-  The page's key is not in your trust root. That happens if you cleared browser
-  storage (the page then generates a <em>new</em> key) or ran
-  <code>op env init</code> after adding it. Re-run the trust-root step in
-  section&nbsp;3 with the <code>key_id</code> currently shown in the console.
+  The page's key is not in your environment's trust root. See what the env
+  actually trusts:
+</p>
+<div class="term">
+  <div class="term-bar">
+    <span class="dot" style="background:#e5695f"></span><span class="dot" style="background:#e0b551"></span><span class="dot" style="background:#67bf6b"></span>
+    <span class="term-title">bash</span>
+    <button class="copy">copy</button>
+  </div>
+<pre><span class="p">$</span> greentic-deployer op trust-root list local</pre>
+</div>
+<p>
+  If the <code>key_id</code> shown in the console above is not in that list, just
+  re-run the <code>op trust-root add</code> step from section&nbsp;3. The usual
+  cause is clearing browser storage — the page then mints a <em>new</em> key,
+  and the old one no longer matches.
 </p>
 
 <h3>Nothing happens after pressing a button</h3>
@@ -531,7 +554,7 @@ function refresh() {
   $("btn-v2").disabled = !ready;
 
   if (!ready) return;
-  const pem = key.publicKeyPem.trim().split("\n").join("\\n") + "\\n";
+  const pem = key.publicKeyPem.trim();
   $("setup").innerHTML = `<span class="p">$</span> export DEMO=~/greentic-demo
 <span class="p">$</span> export HOME=$DEMO/home
 <span class="p">$</span> cd $DEMO
@@ -554,18 +577,11 @@ EOF
 <span class="p">$</span> greentic-deployer op env apply --answers bootstrap.json
 
 <span class="c"># trust THIS PAGE's public key — without this, nothing it signs is accepted</span>
-<span class="p">$</span> python3 - &lt;&lt;'EOF'
-import json, os, pathlib
-p = pathlib.Path(os.environ["HOME"]) / ".greentic/environments/local/trust-root.json"
-tr = json.loads(p.read_text())
-tr["keys"] = [k for k in tr["keys"] if k["key_id"] != "${esc(key.keyId)}"]
-tr["keys"].append({
-    "key_id": "${esc(key.keyId)}",
-    "public_key_pem": "${pem}",
-})
-p.write_text(json.dumps(tr, indent=2))
-print("trusted:", [k["key_id"] for k in tr["keys"]])
+<span class="p">$</span> cat &gt; page-key.pem &lt;&lt;'EOF'
+${esc(pem)}
 EOF
+
+<span class="p">$</span> greentic-deployer op trust-root add local --key-id ${esc(key.keyId)} --public-key-file page-key.pem
 
 <span class="c"># serve it — leave this running</span>
 <span class="p">$</span> greentic-start start --env local --no-browser`;

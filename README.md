@@ -107,11 +107,18 @@ simplification.
 Ed25519 key **in your browser**, and two buttons publish v1 / v2 to the plan
 server. Your runtime picks the change up within 60s.
 
-Your environment accepts what the page signs for exactly one reason: you add the
-page's *public* key to `trust-root.json`. The private half never leaves the
-browser, and the server never sees it — so the page is an operator console, not a
-new trusted party. The page generates the setup commands with your endpoint and
-key already filled in.
+Your environment accepts what the page signs for exactly one reason: you run
+
+```bash
+greentic-deployer op trust-root add local --key-id <the page's key_id> --public-key-file page-key.pem
+```
+
+The private half never leaves the browser, and the server never sees it — so the
+page is an operator console, not a new trusted party. The page generates that
+command, and the whole setup block, with your endpoint and key already filled in.
+
+The page's flow needs **no Python and no `jq`** — just `bash`, `curl` and `grep`.
+(`demo.sh`, the unattended path, still uses `python3` internally.)
 
 The console's crypto is [`docs/publisher.js`](docs/publisher.js) — byte-compatible
 with `greentic-update`'s `build_update_plan` (pretty-printed plan JSON, compact
