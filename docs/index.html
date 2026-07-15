@@ -246,9 +246,9 @@
   │  holds a private key  │      upload bytes      │  stores bytes.   │
   │  you never send       │                        │  holds no keys.  │
   └───────────────────────┘                        └──────────────────┘
-              │                                             ▲
-              │ you add its PUBLIC key                      │  poll every 60s
-              │ to the env's trust root                     │  (anonymous)
+              │                                          │  ▲
+              │ you add its PUBLIC key         SSE push  │  │  anonymous GET
+              │ to the env's trust root       (a hint)   ▼  │  (poll fallback)
               ▼                                             │
   ┌──────────────────────────────────────────────────────────────────┐
   │  greentic-start on YOUR machine                                  │
@@ -259,7 +259,7 @@
 
 <h2>1. Prepare your machine</h2>
 <p>
-  One command installs the whole pinned toolchain. Everything else is
+  One command installs the deployer and the runtime. Everything else is
   <code>bash</code>, <code>curl</code> and <code>grep</code>. No Python, no
   <code>jq</code>, no Docker. Linux and macOS.
 </p>
@@ -272,16 +272,16 @@
     <span class="term-title">terminal — install</span>
     <button class="copy">copy</button>
   </div>
-<pre><span class="p">$</span> cargo binstall gtc
-<span class="p">$</span> gtc install --release 1.1.2
+<pre><span class="p">$</span> cargo binstall greentic-deployer@1.1.16 greentic-start@1.1.21
 
 <span class="p">$</span> export DEMO=~/greentic-demo
 <span class="p">$</span> mkdir -p $DEMO/home &amp;&amp; cd $DEMO</pre>
 </div>
 
 <p class="sub">
-  Release <strong>1.1.2</strong> pins <code>greentic-deployer</code>&nbsp;1.1.11 and
-  <code>greentic-start</code>&nbsp;1.1.11, which is everything this demo needs.
+  <code>greentic-deployer</code>&nbsp;1.1.16 carries the <code>op&nbsp;updates</code>
+  push fields; <code>greentic-start</code>&nbsp;1.1.21 is the runtime with the SSE
+  push receiver (anything &ge;&nbsp;1.1.20 works). That is everything this demo needs.
 </p>
 
 <div class="note">
@@ -383,7 +383,8 @@
 <h2>5. Press “Publish v1”, then check again</h2>
 <p>
   Go back to <a href="#console">the console</a> and press <strong>Publish
-  v1</strong>. Within 60 seconds the runtime picks it up. Run the same check:
+  v1</strong>. The server pushes a hint down the runtime's stream and it picks it
+  up in seconds. Run the same check:
 </p>
 <div class="term">
   <div class="term-bar">
@@ -444,8 +445,8 @@
     <td>Each plan carries a monotonic <code>sequence</code>, read from the <strong>signed plan</strong> rather than from anything the server says.</td>
   </tr>
   <tr>
-    <td>Nothing is pushed at your runtime</td>
-    <td>It polls. An environment with no <code>updates</code> block fetches nothing, ever.</td>
+    <td>The push adds no authority</td>
+    <td>The server pushes only a <em>hint</em> &mdash; <code>{sequence, plan_sha256}</code>, never plan bytes &mdash; so a spoofed event costs one wasted verified fetch, never a bad apply. And it is opt-in: an environment with no <code>updates</code> block neither subscribes nor polls, fetching nothing, ever.</td>
   </tr>
   <tr>
     <td>A plan can't hijack the channel</td>
@@ -478,10 +479,12 @@
 
 <h3>Nothing happens after pressing a button</h3>
 <p>
-  Give it a full minute &mdash; 60s is the poll floor. Then check the console log
-  above: a successful publish prints the sequence number the server accepted. If
-  the button reports an error, it is the server rejecting the upload, not your
-  runtime.
+  It should converge in a second or two &mdash; the server pushes a hint down the
+  runtime's stream the moment the upload lands. Check the console log above: a
+  successful publish prints the sequence number the server accepted. If the button
+  reports an error, it is the server rejecting the upload, not your runtime. (If
+  your runtime predates 1.1.20 it will not have the push receiver and falls back
+  to polling &mdash; an hour away with this manifest.)
 </p>
 
 <h3>Apply cannot pull the bundle</h3>
@@ -559,7 +562,9 @@ function refresh() {
 <span class="p">$</span> export HOME=$DEMO/home
 <span class="p">$</span> cd $DEMO
 
-<span class="c"># an environment with NO packs, subscribed to your namespace</span>
+<span class="c"># an environment with NO packs, subscribed to your namespace over SSE.</span>
+<span class="c"># push_enabled turns on the stream; the runtime derives its URL from</span>
+<span class="c"># plan_endpoint (/plan -> /updates/stream). The hour-long poll is the fallback.</span>
 <span class="p">$</span> cat &gt; bootstrap.json &lt;&lt;'EOF'
 {
   "schema": "greentic.env-manifest.v1",
@@ -567,7 +572,8 @@ function refresh() {
   "updates": {
     "plan_endpoint": "${esc(session.plan_endpoint)}",
     "on_notify": "apply",
-    "poll_interval_secs": 60
+    "push_enabled": true,
+    "poll_interval_secs": 3600
   },
   "bundles": []
 }
@@ -615,7 +621,7 @@ async function doPublish(version) {
       envId: "local",
       target,
     });
-    log(`published ${version} — sequence ${sequence}. Your runtime picks it up within 60s.`, "ok");
+    log(`published ${version} — sequence ${sequence}. Pushed down your runtime's stream; it converges in seconds.`, "ok");
   } catch (e) {
     log(`publish failed: ${e.message}`, "err");
   } finally {
