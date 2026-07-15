@@ -1,8 +1,9 @@
 # greentic-plan-server
 
 The Greentic plan store, as a Cloudflare Worker. It stores DSSE-signed update
-plans and serves them anonymously. **It holds no signing key and cannot mint,
-alter, or forge a plan** — it can only lose one, which the client survives.
+plans, serves them anonymously, and **pushes** a hint to subscribers the moment a
+plan lands. **It holds no signing key and cannot mint, alter, or forge a plan** —
+it can only lose one, which the client survives.
 
 A port of the plan-store half of `greentic-updates-server` (the Rust original),
 with the wire contract preserved byte for byte: same routes, same JSON shapes,
@@ -30,11 +31,51 @@ exactly one `201`, seven `409`.
 | `GET /v1/environments/{id}/plan` | **none** | the signed plan bytes |
 | `GET /v1/environments/{id}/plan.sig` | **none** | the DSSE envelope |
 | `GET /v1/environments/{id}/plan/meta` | **none** | `{sequence, plan_sha256, uploaded_at}` |
+| `GET /v1/environments/{id}/updates/stream` | **none** | SSE push: a `plan` event on every publish (see below) |
 | `GET /v1/environments/{id}` | none | the environment record |
 | `GET /v1/environments/{id}/audit` | none | what happened to this environment |
 
 Reads are anonymous **by design**. The trust anchor is the signature the runtime
 verifies against its own trust root, not the transport and not the origin.
+
+## Push (Server-Sent Events)
+
+`GET …/updates/stream` is a long-lived `text/event-stream`. On every accepted
+`POST …/plan`, the Durable Object broadcasts one frame to every open subscriber:
+
+```
+id: 2
+event: plan
+data: {"schema":"greentic.update-event.v1","env_id":"demo-…","sequence":2,"plan_sha256":"…"}
+```
+
+The event is a **hint**, not the plan. It carries the same `{sequence,
+plan_sha256}` the anonymous `/plan/meta` already exposes, never plan bytes: the
+runtime reacts by running its normal verified fetch, so a spoofed or replayed
+event costs one wasted GET, never a bad apply. That is why the stream needs no
+credential — it discloses nothing a poller could not already read.
+
+The wire contract matches `greentic-update`'s SSE client
+(`greentic-start` derives this URL from its `plan_endpoint` by swapping the
+trailing `/plan` for `/updates/stream`):
+
+- **Catch-up on connect.** A fresh subscriber is handed the current head
+  immediately (so it converges without waiting for the next publish); a resuming
+  one that sends `Last-Event-ID: N` gets the head only if it is newer than `N`.
+  The hint model means the newest plan is all that matters — there is no
+  per-sequence history to replay.
+- **Keepalive.** A `: keepalive` comment every ~20s keeps intermediaries from
+  idling the socket. The client recycles its connection every 900s and resumes
+  losslessly from `Last-Event-ID`.
+- **Held in memory, on the Durable Object.** The same object that serializes the
+  monotonic sequence holds the open connections, so the broadcast on upload and
+  the sequence write cannot interleave. An open stream keeps the object pinned;
+  if it is ever evicted there is nothing to broadcast to, and the client
+  reconnects and catches up from `latest_plan`.
+
+The push channel is a pure latency accelerator: the poll loop remains the
+backstop, and an environment with `push_enabled: false` never opens the stream at
+all (the demo's `no-push` mode proves that opt-out is honoured).
 
 ### Deliberate divergences from the Rust original
 
@@ -102,7 +143,7 @@ SERVER=https://your-worker.workers.dev ../demo.sh
 
 ```bash
 npm install
-npm test         # 17 tests, in workerd, against real Durable Object storage
+npm test         # 24 tests, in workerd, against real Durable Object storage
 npm run typecheck
 npm run dev      # local server on :8787
 ./deploy.sh --check   # typecheck + test, no deploy

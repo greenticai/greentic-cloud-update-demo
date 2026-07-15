@@ -109,6 +109,19 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (rest === "/plan.sig" && request.method === "GET")
       return get("plan.sig");
     if (rest === "/plan/meta" && request.method === "GET") return get("meta");
+    if (rest === "/updates/stream" && request.method === "GET") {
+      // The SSE push channel. Forward `Last-Event-ID` so the DO can resume a
+      // reconnecting subscriber; the streaming Response passes straight back
+      // through `withCors` — its body is a ReadableStream, never buffered. Like
+      // the other reads, anonymous by design: the event is a hint the anonymous
+      // `/plan/meta` already exposes.
+      return stub.fetch(doUrl("stream"), {
+        method: "GET",
+        headers: {
+          "Last-Event-ID": request.headers.get("Last-Event-ID") ?? "",
+        },
+      });
+    }
     if (rest === "/audit" && request.method === "GET") return get("audit");
     if (rest === "" && request.method === "GET") return get("env");
   }

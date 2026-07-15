@@ -5,12 +5,21 @@
 #
 # Anyone can run this. There is nothing to build and no account to create:
 #
-#   the pinned toolchain          cargo binstall gtc && gtc install --release 1.1.2
-#                                 (deployer 1.1.11 + greentic-start 1.1.11)
+#   the deployer                  cargo binstall greentic-deployer@1.1.16
+#                                 (greentic-start 1.1.20/1.1.21 is fetched below)
 #   curl, tar, python3  (Linux and macOS; no coreutils needed)
 #
 # The plan server is already running at $SERVER. It stores DSSE-signed plans and
 # serves them anonymously. It holds no signing key and cannot forge an update.
+#
+# ── PUSH, not poll ─────────────────────────────────────────────────────────
+# The runtime opens a Server-Sent Events stream to the server and is *pushed* a
+# one-line hint the moment a plan is published — {env_id, sequence, plan_sha256},
+# never plan bytes. It reacts by running its normal verified fetch. The hint is
+# the same data the anonymous `/plan/meta` already exposes, so a spoofed event
+# costs one wasted fetch, never a bad apply. The poll loop stays as a backstop,
+# but its interval is set to an HOUR here on purpose: convergence in seconds is
+# then proof the push stream — not a lucky poll — delivered it.
 #
 # The trust chain is real end to end. `op env init` mints YOUR operator key on
 # YOUR machine and seeds its public half into the environment's trust root.
@@ -21,16 +30,17 @@
 #
 # Two updates, in one run:
 #
-#   1. CONTENT   v1 (webchat) → v2 (webchat + telegram). Converges hot: the
-#                runtime snapshots, applies, verifies, and moves traffic with no
-#                restart. Rolls back by itself on failure.
+#   1. CONTENT   v1 (webchat) → v2 (webchat + telegram). Pushed, then converges
+#                hot: the runtime snapshots, applies, verifies, and moves traffic
+#                with no restart. Rolls back by itself on failure.
 #
-#   2. BINARY    greentic-start 1.1.9 → 1.1.11. The plan pins the inner binary's
-#                sha256; the runtime verifies the bytes BEFORE touching the
-#                filesystem, renames the new binary over its own current_exe()
-#                keeping a .prev, and starts answering restart-required. A
-#                process cannot replace itself in flight, so this one STAGES —
-#                traffic never moves, and we assert the live content is unchanged.
+#   2. BINARY    greentic-start 1.1.20 → 1.1.21. Pushed too. The plan pins the
+#                inner binary's sha256; the runtime verifies the bytes BEFORE
+#                touching the filesystem, renames the new binary over its own
+#                current_exe() keeping a .prev, and starts answering
+#                restart-required. A process cannot replace itself in flight, so
+#                this one STAGES — traffic never moves, and we assert the live
+#                content is unchanged.
 #
 # ── DANGER, and why this script is careful ─────────────────────────────────
 # The receiver swaps `std::env::current_exe()`. A greentic-start left running
@@ -41,7 +51,8 @@
 # end that the greentic-start on your PATH is byte-for-byte what it was.
 #
 # Usage:
-#   ./demo.sh          run it
+#   ./demo.sh          run it (content + binary, both pushed over SSE)
+#   ./demo.sh no-push  the negative control: push off → v2 must NOT converge in time
 #   ./demo.sh fetch    download + verify the release artifacts only
 #   ./demo.sh clean    remove home/, bin/ and logs (keeps the caches)
 # ===========================================================================
@@ -55,9 +66,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVER="${SERVER:-https://greentic-plan-server.vladik-dobrik.workers.dev}"
 
 # --- binaries -------------------------------------------------------------
-DEP="${DEP:-greentic-deployer}"        # >= 1.1.10 — `op updates publish`
-VER_FROM="${VER_FROM:-1.1.9}"          # first release with the binary receiver
-VER_TO="${VER_TO:-1.1.11}"             # strictly newer: the runtime refuses <=
+DEP="${DEP:-greentic-deployer}"        # >= 1.1.16 — push fields in `op updates`
+VER_FROM="${VER_FROM:-1.1.20}"         # first release with the SSE push receiver
+VER_TO="${VER_TO:-1.1.21}"             # strictly newer: the runtime refuses <=
 START_REL="https://github.com/greenticai/greentic-start/releases/download"
 
 # --- content: two versions of one bundle ----------------------------------
@@ -77,7 +88,16 @@ BIN_DIR="$HERE/bin"                    # the runtime COPY that the swap replaces
 RUNTIME_BIN="$BIN_DIR/greentic-start"
 BUNDLE_ID="updatedemo"
 RUNTIME_PORT="${RUNTIME_PORT:-8080}"
-POLL_SECS=60                           # MIN_POLL_INTERVAL_SECS — the floor
+
+# The poll interval is set to an HOUR (the runtime's own default). The point is
+# to take the poll OUT of the picture: with push working, a plan converges in
+# seconds, which the once-an-hour poll could not possibly explain. That is the
+# whole proof — see step 4. `no-push` mode flips PUSH_ENABLED to false and shows
+# the same publish does NOT converge inside the budget, i.e. the demo can fail
+# for the stated reason.
+POLL_INTERVAL="${POLL_INTERVAL:-3600}" # DEFAULT_POLL_INTERVAL_SECS — an hour away
+PUSH_BUDGET="${PUSH_BUDGET:-90}"       # seconds a pushed update must converge in
+PUSH_ENABLED="${PUSH_ENABLED:-true}"   # `no-push` sets this false (negative control)
 
 # The LOCAL environment is `local`. The SERVER-side namespace is the random
 # `demo-…` the plan server mints for this run. They are independent on purpose:
@@ -274,8 +294,8 @@ ensure_runtime_bin() {
 cmd_env() {
   step "create the environment and apply v1"
   need curl; need tar; need python3
-  need "$DEP" "cargo binstall gtc && gtc install --release 1.1.2"
-  version_at_least "$DEP" 1.1.10
+  need "$DEP" "cargo binstall greentic-deployer@1.1.16"
+  version_at_least "$DEP" 1.1.16
 
   say "claiming a namespace on $SERVER"
   curl -fsS --retry 3 -X POST "$SERVER/v1/demo/session" -o "$HERE/.session.json" \
@@ -309,7 +329,7 @@ cmd_serve() {
   [ -f "$HERE/.session.json" ] || die "no environment yet — run: ./demo.sh env"
   assert_clean_host
   ensure_runtime_bin
-  step "serving env \`$ENV_ID\` — polling $(session env_id) every ${POLL_SECS}s"
+  step "serving env \`$ENV_ID\` — subscribed to $(session env_id), poll fallback ${POLL_INTERVAL}s"
   info "publish from another terminal:  ./demo.sh switch v2"
   info "Ctrl-C to stop."
   echo
@@ -332,8 +352,8 @@ cmd_switch() { # <v1|v2>
 import json, sys
 r = json.load(sys.stdin)["result"]
 print("    sequence=%s  key_id=%s  plan_sha256=%s…" % (r["sequence"], r["key_id"], r["plan_sha256"][:16]))'
-  ok "uploaded. Nothing was pushed at the runtime."
-  info "within ${POLL_SECS}s it will fetch, verify the signature, and converge."
+  ok "uploaded. The server pushed a one-line hint down the runtime's stream."
+  info "within a second it fetches, verifies the signature, and converges — no wait for the poll."
   info "watch:  ./demo.sh status"
 }
 
@@ -373,10 +393,14 @@ print("    sequence=%s  plan_sha256=%s…  uploaded_at=%s" % (m["sequence"], m["
 # place it may live. `op updates publish` STRIPS `updates` from a plan target
 # before signing: a signed plan that could re-point the channel it arrived on
 # would be a self-perpetuating takeover primitive.
+#
+# `push_enabled: true` opts into the SSE stream. The runtime does not need a
+# stream URL: it DERIVES one from `plan_endpoint` by swapping the trailing
+# `/plan` for `/updates/stream`. `poll_interval_secs` is the hour-away fallback.
 write_manifests() {
-  python3 - "$OCI_BASE" "$V1_DIGEST" "$V2_DIGEST" "$ENV_ID" "$BUNDLE_ID" "$HERE" "$PLAN_ENDPOINT" "$POLL_SECS" <<'PY'
+  python3 - "$OCI_BASE" "$V1_DIGEST" "$V2_DIGEST" "$ENV_ID" "$BUNDLE_ID" "$HERE" "$PLAN_ENDPOINT" "$POLL_INTERVAL" "$PUSH_ENABLED" <<'PY'
 import json, sys
-oci, v1d, v2d, env_id, bundle_id, here, endpoint, poll = sys.argv[1:9]
+oci, v1d, v2d, env_id, bundle_id, here, endpoint, poll, push = sys.argv[1:10]
 
 def manifest(version, digest, updates=None):
     doc = {"schema": "greentic.env-manifest.v1", "environment": {"id": env_id}}
@@ -391,6 +415,7 @@ def manifest(version, digest, updates=None):
 
 manifest("v1", v1d, {"plan_endpoint": endpoint,
                      "on_notify": "apply",
+                     "push_enabled": push == "true",
                      "poll_interval_secs": int(poll)})
 manifest("v2", v2d)
 PY
@@ -400,8 +425,8 @@ PY
 cmd_run() {
   step "0. preflight"
   need curl; need tar; need python3
-  need "$DEP" "cargo binstall gtc && gtc install --release 1.1.2"
-  version_at_least "$DEP" 1.1.10
+  need "$DEP" "cargo binstall greentic-deployer@1.1.16"
+  version_at_least "$DEP" 1.1.16
   assert_clean_host
 
   # The PATH runtime is never used — but the swap hazard means we prove it.
@@ -451,8 +476,11 @@ print("    outcome=%s   operator_key_id=%s" % (r["outcome"], r["trust_root"]["op
   op updates config-show "$ENV_ID" | python3 -c '
 import json, sys
 r = json.load(sys.stdin)["result"]
-print("    enabled=%s  on_update=%s  poll_interval_secs=%s" % (str(r["enabled"]).lower(), r["on_update"], r["poll_interval_secs"]))
-print("    plan_endpoint=%s" % r["plan_endpoint"])'
+print("    enabled=%s  on_update=%s  push_enabled=%s  poll_interval_secs=%s" % (
+    str(r["enabled"]).lower(), r["on_update"], str(r.get("push_enabled", True)).lower(), r["poll_interval_secs"]))
+print("    plan_endpoint=%s" % r["plan_endpoint"])
+se = r.get("stream_endpoint")
+print("    stream_endpoint=%s" % (se if se else "(derived: plan_endpoint with /plan → /updates/stream)"))'
   dim "the manifest wrote the channel — no \`config-set\`, no \`--enabled true\`"
 
   # -------------------------------------------------------------------------
@@ -470,10 +498,27 @@ print("    plan_endpoint=%s" % r["plan_endpoint"])'
   for i in $(seq 1 60); do grep -q "revision ingress listening" "$HERE/.runtime.log" 2>/dev/null && break; sleep 0.5; done
   grep -q "revision ingress listening" "$HERE/.runtime.log" \
     || { tail -20 "$HERE/.runtime.log" >&2; die "the runtime did not come up"; }
-  ok "serving v1; the poll loop is polling the cloud"
+  ok "serving v1"
+
+  # Wait until the runtime has SUBSCRIBED to the push stream before publishing, so
+  # the convergence timed in step 4 is the push delivering — not a reconnect, and
+  # certainly not the hour-away poll. Connect catch-up would cover us even if we
+  # published first (a fresh subscriber is handed the current head on connect),
+  # but observing the subscription first makes the timing claim exact.
+  local subscribed=""
+  for i in $(seq 1 40); do
+    grep -q "update-stream:.*subscribing to" "$HERE/.runtime.log" 2>/dev/null && { subscribed=1; break; }
+    sleep 0.5
+  done
+  if [ -n "$subscribed" ]; then
+    ok "subscribed to the push stream — the poll fallback is ${POLL_INTERVAL}s away:"
+    grep "update-stream:.*subscribing to" "$HERE/.runtime.log" | tail -1 | sed 's/.*\(update-stream:.*\)/    \1/'
+  else
+    dim "did not observe the 'subscribing' log line; relying on connect catch-up + timing"
+  fi
 
   # -------------------------------------------------------------------------
-  step "4. publish the CONTENT update — one command"
+  step "4. publish the CONTENT update — pushed, not polled"
   say "op updates publish — read the next sequence off the server, sign in memory, upload"
   local before; before=$(live_digest)
   env GREENTIC_PLAN_UPLOAD_TOKEN="$UPLOAD_TOKEN" HOME="$HOME_DIR" "$DEP" \
@@ -485,16 +530,18 @@ print("    plan_id=%s  sequence=%s  key_id=%s" % (r["plan_id"], r["sequence"], r
 print("    status=%s  plan_sha256=%s…" % (r["status"], r["plan_sha256"][:16]))'
   ok "the signing key never left this machine; the server stored bytes it cannot forge"
 
-  say "waiting for the runtime to fetch → DSSE-verify → stage → apply…"
-  dim "poll interval ${POLL_SECS}s; nothing was pushed at the runtime"
-  local moved=""
-  for i in $(seq 1 $((POLL_SECS * 2 + 60))); do
+  say "the server pushed a one-line hint down the stream; waiting for fetch → DSSE-verify → apply…"
+  dim "the poll fallback is ${POLL_INTERVAL}s away, so converging now can only be the push"
+  local moved="" t0=$SECONDS
+  for i in $(seq 1 "$PUSH_BUDGET"); do
     [ -n "$(live_digest)" ] && [ "$(live_digest)" != "$before" ] && { moved=1; break; }
     sleep 1
   done
-  [ -n "$moved" ] || { tail -25 "$HERE/.runtime.log" >&2; die "traffic never moved (see .runtime.log)"; }
-  ok "v2 is live — telegram joined webchat, with no restart:"
+  local elapsed=$((SECONDS - t0))
+  [ -n "$moved" ] || { tail -25 "$HERE/.runtime.log" >&2; die "traffic never moved within ${PUSH_BUDGET}s (see .runtime.log)"; }
+  ok "v2 is live in ${elapsed}s — telegram joined webchat, with no restart:"
   show_live
+  dim "${elapsed}s to converge vs a ${POLL_INTERVAL}s poll interval — the push stream delivered it, not a poll"
   local after_content; after_content=$(live_digest)
 
   # -------------------------------------------------------------------------
@@ -520,9 +567,10 @@ import json, sys
 r = json.load(sys.stdin)["result"]
 print("    plan_id=%s  sequence=%s  key_id=%s" % (r["plan_id"], r["sequence"], r["key_id"]))'
 
-  say "waiting for the runtime to fetch the archive → verify the digest → swap itself…"
+  say "the plan is pushed too; waiting for the runtime to fetch the archive → verify the digest → swap itself…"
+  dim "this one also downloads a tarball from GitHub's CDN, so it takes a little longer than the content update"
   local swapped=""
-  for i in $(seq 1 $((POLL_SECS * 2 + 120))); do
+  for i in $(seq 1 $((PUSH_BUDGET + 120))); do
     [ -f "$HOME_DIR/.greentic/environments/$ENV_ID/binary-update-pending.json" ] && { swapped=1; break; }
     sleep 1
   done
@@ -565,23 +613,106 @@ print("    %s -> %s   restart_required" % (m["from_version"], m["to_version"]))'
   dim "  $ curl -si localhost:$RUNTIME_PORT/healthz | grep -i restart-required"
   curl -si "localhost:$RUNTIME_PORT/healthz" 2>/dev/null | grep -i 'restart-required' | sed 's/^/    /' || true
 
-  printf '\n%s\n' "${GRN}${BOLD}✓ content converged hot; the binary staged itself. Both from a server on the public internet.${Z}"
+  printf '\n%s\n' "${GRN}${BOLD}✓ content converged hot; the binary staged itself — both PUSHED from a server on the public internet.${Z}"
   info "two plans, sequence 1 → 2, both signed by the key \`op env init\` minted here."
+  info "each converged in seconds against an hour-long poll interval — only the push stream explains that."
   info "the server never held a key. The runtime never trusted the server — only the signature."
   info "state lives under $HOME_DIR; your real ~/.greentic was never touched."
+  info ""
+  info "prove it the other way:  PUSH_ENABLED=false ./demo.sh no-push"
+  dim "  same publish, push turned off → v2 must NOT converge inside ${PUSH_BUDGET}s (the poll is an hour away)"
+}
+
+# ===========================================================================
+# no-push — the negative control.
+#
+# Everything the content half of `run` does, but with `push_enabled: false` in
+# the manifest. The runtime never opens the stream, so the published v2 has only
+# the hour-away poll to reach it — and must therefore NOT converge inside the
+# push budget. A demo whose success is push must be able to fail without it; this
+# is that failure, asserted.
+# ===========================================================================
+cmd_no_push() {
+  PUSH_ENABLED=false
+  step "0. preflight (push DISABLED — negative control)"
+  need curl; need tar; need python3
+  need "$DEP" "cargo binstall greentic-deployer@1.1.16"
+  version_at_least "$DEP" 1.1.16
+  assert_clean_host
+  cmd_fetch
+
+  step "1. claim a namespace on the plan server"
+  curl -fsS --retry 3 -X POST "$SERVER/v1/demo/session" -o "$HERE/.session.json" \
+    || die "could not reach the plan server at $SERVER"
+  UPLOAD_TOKEN="$(python3 -c 'import json;print(json.load(open("'"$HERE"'/.session.json"))["upload_token"])')"
+  PLAN_ENDPOINT="$(python3 -c 'import json;print(json.load(open("'"$HERE"'/.session.json"))["plan_endpoint"])')"
+  ok "server namespace: $(session env_id)  (push_enabled=false)"
+
+  rm -rf "$HOME_DIR"; mkdir -p "$HOME_DIR" "$HERE/manifests"
+  write_manifests
+  trap cleanup EXIT
+
+  step "2. create the environment and apply v1 (channel enabled, push OFF)"
+  op env init >/dev/null
+  op env apply --answers "$HERE/manifests/v1.gen.json" >/dev/null || die "env apply failed"
+  op updates config-show "$ENV_ID" | python3 -c '
+import json, sys
+r = json.load(sys.stdin)["result"]
+print("    enabled=%s  push_enabled=%s  poll_interval_secs=%s" % (
+    str(r["enabled"]).lower(), str(r.get("push_enabled", True)).lower(), r["poll_interval_secs"]))'
+
+  step "3. start the runtime"
+  local from_bin
+  from_bin="$(extract_binary "$CACHE_DIR/$(tarball_name "$VER_FROM")" "$CACHE_DIR/x-$VER_FROM")"
+  [ -n "$from_bin" ] || die "no greentic-start inside the $VER_FROM tarball"
+  rm -rf "$BIN_DIR"; mkdir -p "$BIN_DIR"; cp "$from_bin" "$RUNTIME_BIN"; chmod +x "$RUNTIME_BIN"
+  start_bg "$HERE/.runtime.log" env HOME="$HOME_DIR" "$RUNTIME_BIN" start --env "$ENV_ID" --no-browser
+  local i
+  for i in $(seq 1 60); do grep -q "revision ingress listening" "$HERE/.runtime.log" 2>/dev/null && break; sleep 0.5; done
+  grep -q "revision ingress listening" "$HERE/.runtime.log" \
+    || { tail -20 "$HERE/.runtime.log" >&2; die "the runtime did not come up"; }
+  # With push off the runtime must not subscribe. Give it the same grace the
+  # positive run gives the subscribe line, then assert it never appeared.
+  sleep 5
+  if grep -q "update-stream:.*subscribing to" "$HERE/.runtime.log" 2>/dev/null; then
+    die "the runtime subscribed to the stream with push_enabled=false — the opt-out is not being honoured"
+  fi
+  ok "runtime is up and did NOT open a push stream (push_enabled=false)"
+
+  step "4. publish v2 — and prove it does NOT converge without push"
+  local before; before=$(live_digest)
+  env GREENTIC_PLAN_UPLOAD_TOKEN="$UPLOAD_TOKEN" HOME="$HOME_DIR" "$DEP" \
+    op updates publish "$ENV_ID" --target-file "$HERE/manifests/v2.gen.json" >/dev/null \
+    || die "publish failed"
+  ok "v2 published (sequence 1). The poll is ${POLL_INTERVAL}s away and there is no stream."
+  say "watching for ${PUSH_BUDGET}s — with push off, traffic must stay on v1…"
+  local moved=""
+  for i in $(seq 1 "$PUSH_BUDGET"); do
+    [ -n "$(live_digest)" ] && [ "$(live_digest)" != "$before" ] && { moved=1; break; }
+    sleep 1
+  done
+  if [ -n "$moved" ]; then
+    die "v2 converged inside ${PUSH_BUDGET}s with push disabled — the positive run proves nothing
+    (something other than the push stream is delivering updates this fast)"
+  fi
+  printf '\n%s\n' "${GRN}${BOLD}✓ negative control held: v2 did NOT converge in ${PUSH_BUDGET}s without push.${Z}"
+  info "the poll would still get there — in ${POLL_INTERVAL}s. The push stream is what makes it seconds."
+  info "so a passing \`./demo.sh run\` is push doing the work, not a lucky poll."
 }
 
 case "${1:-run}" in
-  run)    cmd_run ;;
-  env)    cmd_env ;;
-  serve)  cmd_serve ;;
-  switch) shift; cmd_switch "${1:-}" ;;
-  status) cmd_status ;;
-  fetch)  cmd_fetch ;;
-  clean)  cmd_clean ;;
-  *)      die "usage: $0 [run|env|serve|switch v1|v2|status|fetch|clean]
+  run)     cmd_run ;;
+  no-push) cmd_no_push ;;
+  env)     cmd_env ;;
+  serve)   cmd_serve ;;
+  switch)  shift; cmd_switch "${1:-}" ;;
+  status)  cmd_status ;;
+  fetch)   cmd_fetch ;;
+  clean)   cmd_clean ;;
+  *)       die "usage: $0 [run|no-push|env|serve|switch v1|v2|status|fetch|clean]
 
-  run              the whole story, unattended (content + binary update)
+  run              the whole story, unattended (content + binary update, PUSHED)
+  no-push          the negative control: push off → v2 must NOT converge in time
 
   env              create the environment, apply v1, subscribe to the channel
   serve            run the runtime in the foreground (keep the terminal open)
